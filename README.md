@@ -9,8 +9,7 @@ x264 software fallback) instead of holding raw frames in RAM. A 15-second
 gigabytes**, so multi-camera replay setups run comfortably on ordinary
 streaming PCs.
 
-<!-- SCREENSHOT: replay bin dock with thumbnails next to the OBS preview -->
-<!-- ![Sports Replay dock](docs/dock.png) -->
+![Sports Replay running in a live off-road race broadcast](docs/screenshot-obs.png)
 
 ## Why
 
@@ -68,8 +67,17 @@ while cutting memory use by roughly **50–100×**.
    program. The save folder is set with the ⚙ button (defaults to
    `Videos/Sports Replay`).
 
-<!-- SCREENSHOT: Sports Replay source properties -->
-<!-- ![Source properties](docs/properties.png) -->
+### The capture filter (per camera)
+
+![Sports Replay Capture filter](docs/screenshot-capture-filter.png)
+
+### The playback source
+
+![Sports Replay source properties](docs/screenshot-source-properties.png)
+
+### The replay bin dock
+
+![Replay bin dock with thumbnails](docs/screenshot-dock.png)
 
 Assign hotkeys under *Settings → Hotkeys* (capture, play/pause, speed
 presets, reverse, play last saved replay).
