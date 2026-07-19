@@ -1,0 +1,65 @@
+======================================================================
+ POST PARA obsproject.com  (formato BBCode, listo para pegar)
+======================================================================
+
+--- TÍTULO del recurso ---
+Sports Replay — Low-memory instant replay for sports broadcasts
+
+--- TAG LINE / resumen corto ---
+Instant replay with a compressed GPU buffer, slow motion, sponsor bumpers and a replay bin dock — made for live sports streaming.
+
+--- VERSION ---
+1.0.0
+
+--- DOWNLOAD / EXTERNAL URL ---
+https://github.com/Voodoo25/obs-sports-replay/releases/tag/1.0.0
+
+--- CATEGORÍA ---
+OBS Studio Plugins
+
+======================================================================
+ DESCRIPCIÓN (pegar en el cuerpo del recurso — BBCode)
+======================================================================
+
+[SIZE=5][B]Sports Replay[/B][/SIZE]
+[B]Low-memory instant replay for live sports broadcasts.[/B]
+
+Sports Replay brings TV-style instant replay to OBS without eating your RAM. Instead of keeping raw frames in memory (which can reach several GB per camera), it keeps the buffer [B]compressed with your GPU[/B] (NVENC / AMF / QSV, with an x264 software fallback). A 15-second 1080p60 buffer uses tens of megabytes instead of gigabytes, so multi-camera replay setups run comfortably on a normal streaming PC.
+
+[SIZE=4][B]Features[/B][/SIZE]
+[LIST]
+[*][B]Compressed replay buffer[/B] — one capture filter per camera (duration & quality configurable)
+[*][B]Auto-play on scene switch[/B] — cut to the replay scene and it plays the last N seconds automatically
+[*][B]Slow motion[/B] (10–400%) and reverse, with hotkeys
+[*][B]Configurable end action[/B]: freeze, return to the previous scene, or loop
+[*][B]Sponsor bumpers[/B] — optional intro/outro clips played around the replay
+[*][B]Automatic save[/B] of every replay to .mp4 (no re-encode)
+[*][B]Replay bin dock[/B] with thumbnails — double-click a saved replay to send it to program and return to the previous scene
+[*][B]Multi-camera[/B] — one filter per camera, replay any of them
+[/LIST]
+
+[SIZE=4][B]How to use[/B][/SIZE]
+[LIST=1]
+[*]Add the [B]Sports Replay Capture[/B] filter to each camera (right-click source → Filters).
+[*]In your replay scene, add a [B]Sports Replay[/B] source and pick which camera to replay from. Set speed, "when the replay ends = return to previous scene", and optional sponsor clips.
+[*]Cut to the replay scene → it plays automatically and returns to your main camera.
+[*]Open the [B]Replays (Sports Replay)[/B] dock to see saved replays as thumbnails and launch them with a double-click.
+[/LIST]
+
+[SIZE=4][B]Requirements[/B][/SIZE]
+OBS Studio 31+ (tested on 32.0.2, Windows). A GPU hardware H.264 encoder is recommended; falls back to x264.
+
+[SIZE=4][B]Install (Windows)[/B][/SIZE]
+Download [B]sports-replay-1.0.0-windows-installer.exe[/B] from the release and run it. It detects your OBS folder and installs the plugin. Restart OBS. (SmartScreen may warn about an unknown publisher — More info → Run anyway; the plugin is unsigned, which is normal for community plugins.)
+
+[SIZE=4][B]Source & license[/B][/SIZE]
+Open source (GPL-2.0-or-later): [URL]https://github.com/Voodoo25/obs-sports-replay[/URL]
+Author: Systec — [URL]https://www.systecinformatica.com.ar[/URL]
+
+======================================================================
+ IMÁGENES A SUBIR (con el botón de adjuntar imágenes del editor):
+   docs/screenshot-obs.png              (OBS completo con el dock)
+   docs/screenshot-dock.png             (el dock con miniaturas)
+   docs/screenshot-capture-filter.png   (el filtro de captura)
+   docs/screenshot-source-properties.png(propiedades de la fuente)
+======================================================================
