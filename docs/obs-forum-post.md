@@ -45,13 +45,12 @@ H.264 encoder is recommended; falls back to x264.
 **Author:** Systec — https://www.systecinformatica.com.ar
 **License:** GPL-2.0-or-later
 
-<!-- CAPTURAS A SUBIR:
- 1. El dock de repeticiones con miniaturas al lado del preview de OBS
- 2. Las propiedades de la fuente Sports Replay (velocidad, acción al terminar,
-    cortinas de sponsor)
- 3. Una repetición en cámara lenta en programa
- 4. (opcional) El filtro "Sports Replay Capture" en una cámara
--->
+**Capturas a subir al foro** (están en la carpeta `docs/` del repo):
+ 1. `screenshot-obs.png` — OBS completo con las cámaras y el dock de repeticiones
+ 2. `screenshot-dock.png` — el dock "Repeticiones" con miniaturas y el engranaje ⚙
+ 3. `screenshot-capture-filter.png` — el filtro "Captura de Sports Replay" en una cámara
+ 4. `screenshot-source-properties.png` — propiedades de la fuente (velocidad, acción
+    al terminar, cortinas de sponsor)
 
 ## Cómo usarlo (para incluir en el post)
 
