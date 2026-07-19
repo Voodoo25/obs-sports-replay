@@ -99,6 +99,7 @@ its development. Your support helps me keep maintaining and improving it.
 
 - 💵 **Payoneer** — `systecinformatica@gmail.com`
 - 🇦🇷 **Mercado Pago** (Argentina only) — alias `systecinformatica`
+- ₿ **USDT (TRC-20)** — `TTHh4B9k9nbp3DB1DKN2XcPrVurPZFvPpz`
 
 Thank you! 🙏
 
