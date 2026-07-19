@@ -92,6 +92,16 @@ cmake --preset windows-x64
 cmake --build --preset windows-x64
 ```
 
+## Support development
+
+If this plugin has been useful for your broadcasts, please consider supporting
+its development. Your support helps me keep maintaining and improving it.
+
+- 💵 **Payoneer** — `systecinformatica@gmail.com`
+- 🇦🇷 **Mercado Pago** (Argentina only) — alias `systecinformatica`
+
+Thank you! 🙏
+
 ## Author
 
 Developed by **Systec** — [www.systecinformatica.com.ar](https://www.systecinformatica.com.ar)
