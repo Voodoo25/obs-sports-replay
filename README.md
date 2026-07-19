@@ -94,14 +94,16 @@ cmake --build --preset windows-x64
 
 ## Support development
 
-If this plugin has been useful for your broadcasts, please consider supporting
-its development. Your support helps me keep maintaining and improving it.
+Plugins like this take a lot of time, testing and late nights to build and keep
+working across OBS updates. Sports Replay is free and open source, and it will
+stay that way. If it has been useful for your broadcasts, a small contribution
+helps me keep maintaining it, adding new features, and building more free tools
+for the community. Every bit is genuinely appreciated — thank you for your
+support! 🙏
 
 - 💵 **Payoneer** — `systecinformatica@gmail.com`
 - 🇦🇷 **Mercado Pago** (Argentina only) — alias `systecinformatica`
 - ₿ **USDT (TRC-20)** — `TTHh4B9k9nbp3DB1DKN2XcPrVurPZFvPpz`
-
-Thank you! 🙏
 
 ## Author
 
