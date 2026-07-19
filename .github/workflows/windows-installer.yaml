@@ -1,0 +1,58 @@
+name: Windows Installer 📦
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to build the installer for (e.g. 1.0.0)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  installer:
+    name: Build Windows installer 🪟
+    runs-on: windows-2022
+    steps:
+      - name: Check out repository 📥
+        uses: actions/checkout@v4
+
+      - name: Resolve tag 🏷️
+        id: tag
+        shell: bash
+        run: |
+          if [[ "${GITHUB_EVENT_NAME}" == "release" ]]; then
+            echo "value=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download Windows package 📦
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "${{ steps.tag.outputs.value }}" \
+            --repo "${{ github.repository }}" \
+            --pattern '*windows-x64.zip' --dir installer
+          cd installer
+          7z x -y *windows-x64.zip
+          cp ../LICENSE LICENSE.txt
+
+      - name: Install Inno Setup 🛠️
+        run: choco install innosetup --yes --no-progress
+
+      - name: Build installer 🧱
+        shell: cmd
+        run: iscc "/DMyVersion=${{ steps.tag.outputs.value }}" installer\sports-replay.iss
+
+      - name: Upload installer to release 🚀
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${{ steps.tag.outputs.value }}" \
+            "installer/Output/sports-replay-${{ steps.tag.outputs.value }}-windows-installer.exe" \
+            --repo "${{ github.repository }}" --clobber
