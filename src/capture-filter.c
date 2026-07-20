@@ -22,6 +22,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include "sr-buffer.h"
 #include "sr-codec.h"
 #include "sr-capture.h"
+#include "sr-credit.h"
 
 #define S_DURATION "duration_ms"
 #define S_ENCODER "encoder"
@@ -191,6 +192,9 @@ static obs_properties_t *sr_capture_properties(void *unused)
 	obs_property_list_add_int(p, obs_module_text("Quality.High"), 18);
 	obs_property_list_add_int(p, obs_module_text("Quality.Medium"), 23);
 	obs_property_list_add_int(p, obs_module_text("Quality.Low"), 28);
+
+	char credit[256];
+	obs_properties_add_text(props, "sr_credit", sr_plugin_credit_html(credit, sizeof(credit)), OBS_TEXT_INFO);
 
 	return props;
 }

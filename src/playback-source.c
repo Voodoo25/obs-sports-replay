@@ -30,6 +30,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include "sr-save.h"
 #include "sr-load.h"
 #include "sr-config.h"
+#include "sr-credit.h"
 
 #include <time.h>
 #include <sys/stat.h>
@@ -823,6 +824,9 @@ static obs_properties_t *sr_playback_properties(void *data)
 
 	if (data)
 		obs_properties_add_button(props, "capture_now", obs_module_text("CaptureNow"), capture_button_clicked);
+
+	char credit[256];
+	obs_properties_add_text(props, "sr_credit", sr_plugin_credit_html(credit, sizeof(credit)), OBS_TEXT_INFO);
 
 	return props;
 }

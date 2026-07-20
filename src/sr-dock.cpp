@@ -20,6 +20,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include "sr-config.h"
 #include "sr-thumb.h"
 #include "sr-capture.h"
+#include "sr-credit.h"
 
 #include <obs-module.h>
 #include <obs-frontend-api.h>
@@ -53,6 +54,20 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 static QString T(const char *key)
 {
 	return QString::fromUtf8(obs_module_text(key));
+}
+
+/* A small "Sports Replay (version) by Systec" clickable credit label, shown
+ * at the bottom of the dock and its dialogs, matching the footer convention
+ * used by other OBS plugins (e.g. Exeldro's). */
+static QLabel *makeCreditLabel(QWidget *parent)
+{
+	char buf[256];
+	auto *label = new QLabel(QString::fromUtf8(sr_plugin_credit_html(buf, sizeof(buf))), parent);
+	label->setTextFormat(Qt::RichText);
+	label->setTextInteractionFlags(Qt::TextBrowserInteraction);
+	label->setOpenExternalLinks(true);
+	label->setStyleSheet("color: gray; font-size: 10px;");
+	return label;
 }
 
 namespace {
@@ -125,6 +140,8 @@ public:
 		hint->setStyleSheet("color: gray;");
 		root->addWidget(hint);
 
+		root->addWidget(makeCreditLabel(this));
+
 		watcher = new QFileSystemWatcher(this);
 
 		/* a new file appears before its mp4 index (moov) is finished, so
@@ -171,7 +188,12 @@ private:
 		lay->addLayout(row);
 
 		auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
-		lay->addWidget(buttons);
+
+		auto *footer = new QHBoxLayout();
+		footer->addWidget(makeCreditLabel(&dlg));
+		footer->addStretch(1);
+		footer->addWidget(buttons);
+		lay->addLayout(footer);
 
 		connect(browse, &QPushButton::clicked, &dlg, [&]() {
 			QString picked = QFileDialog::getExistingDirectory(&dlg, T("Dock.PickFolder"), edit->text());
