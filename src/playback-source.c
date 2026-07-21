@@ -405,7 +405,7 @@ static void sr_playback_tick(void *data, float seconds)
 		if (return_to_scene) {
 			char *prev = sr_scene_tracker_previous();
 			if (prev) {
-				sr_switch_to_scene(prev);
+				sr_switch_to_scene_return(prev);
 				bfree(prev);
 			}
 		}
@@ -466,7 +466,7 @@ static void sr_playback_tick(void *data, float seconds)
 	if (return_to_scene) {
 		char *prev = sr_scene_tracker_previous();
 		if (prev) {
-			sr_switch_to_scene(prev);
+			sr_switch_to_scene_return(prev);
 			bfree(prev);
 		}
 	}
@@ -752,7 +752,7 @@ static void sr_playback_activate(void *data)
 	const bool skip = p->skip_next_autocapture;
 	p->skip_next_autocapture = false;
 	pthread_mutex_unlock(&p->mutex);
-	if (skip)
+	if (skip || sr_scene_tracker_consume_returning())
 		return;
 
 	if (p->autoplay)

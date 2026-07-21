@@ -26,6 +26,7 @@ static pthread_mutex_t g_mutex;
 static bool g_started;
 static char *g_current_scene;
 static char *g_previous_scene;
+static bool g_returning;
 
 static void on_frontend_event(enum obs_frontend_event event, void *data)
 {
@@ -66,6 +67,7 @@ void sr_scene_tracker_stop(void)
 	bfree(g_previous_scene);
 	g_current_scene = NULL;
 	g_previous_scene = NULL;
+	g_returning = false;
 	pthread_mutex_unlock(&g_mutex);
 	pthread_mutex_destroy(&g_mutex);
 	g_started = false;
@@ -98,4 +100,49 @@ void sr_switch_to_scene(const char *scene_name)
 		return;
 	/* scene switching must happen on the UI thread */
 	obs_queue_task(OBS_TASK_UI, switch_scene_task, bstrdup(scene_name), false);
+}
+
+static void switch_scene_return_task(void *param)
+{
+	char *name = param;
+	obs_source_t *scene = obs_get_source_by_name(name);
+	if (scene) {
+		/* obs_frontend_set_current_scene() activates the target scene's
+		 * sources synchronously, so bracket the flag tightly around it
+		 * instead of leaving it set for some other, later activation
+		 * to stumble into. */
+		pthread_mutex_lock(&g_mutex);
+		g_returning = true;
+		pthread_mutex_unlock(&g_mutex);
+
+		obs_frontend_set_current_scene(scene);
+
+		pthread_mutex_lock(&g_mutex);
+		g_returning = false;
+		pthread_mutex_unlock(&g_mutex);
+
+		obs_source_release(scene);
+	}
+	bfree(name);
+}
+
+/* Same as sr_switch_to_scene(), but marks the activation as a "return to
+ * previous scene" bounce: if the scene we land on itself holds a Sports
+ * Replay source with autoplay + "return to previous" configured, that
+ * source must not treat this as a deliberate trigger and auto-capture a
+ * fresh replay - otherwise two such scenes ping-pong forever. */
+void sr_switch_to_scene_return(const char *scene_name)
+{
+	if (!scene_name || !*scene_name)
+		return;
+	obs_queue_task(OBS_TASK_UI, switch_scene_return_task, bstrdup(scene_name), false);
+}
+
+bool sr_scene_tracker_consume_returning(void)
+{
+	pthread_mutex_lock(&g_mutex);
+	const bool was = g_returning;
+	g_returning = false;
+	pthread_mutex_unlock(&g_mutex);
+	return was;
 }
