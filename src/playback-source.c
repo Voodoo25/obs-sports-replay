@@ -45,6 +45,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #define S_AUTOPLAY "autoplay"
 #define S_INTRO_CLIP "intro_clip"
 #define S_OUTRO_CLIP "outro_clip"
+#define S_MUTED "run_muted"
 
 enum sr_end_action {
 	SR_END_FREEZE = 0, /* stay on the last frame */
@@ -92,6 +93,7 @@ struct sr_playback {
 	bool autoplay;
 	bool playing;
 	bool paused;
+	bool muted; /* forces replay audio off regardless of the source's own mixer mute */
 
 	obs_hotkey_id hk_capture;
 	obs_hotkey_id hk_play_pause;
@@ -342,7 +344,7 @@ static void sr_playback_output_audio(struct sr_playback *p, uint64_t from, uint6
 		const struct sr_audio_chunk *chunk = &p->replay.audio.array[p->audio_idx];
 		if (chunk->ts > to)
 			break;
-		if (chunk->ts > from) {
+		if (chunk->ts > from && !p->muted) {
 			struct obs_source_audio out = {0};
 			for (size_t i = 0; i < MAX_AV_PLANES; i++)
 				out.data[i] = (const uint8_t *)chunk->data[i];
@@ -732,6 +734,7 @@ static void sr_playback_update(void *data, obs_data_t *settings)
 	p->backward = obs_data_get_bool(settings, S_BACKWARD);
 	p->end_action = (int)obs_data_get_int(settings, S_END_ACTION);
 	p->autoplay = obs_data_get_bool(settings, S_AUTOPLAY);
+	p->muted = obs_data_get_bool(settings, S_MUTED);
 	pthread_mutex_unlock(&p->mutex);
 
 	reload_clip(p, &p->intro_clip, &p->intro_path, obs_data_get_string(settings, S_INTRO_CLIP));
@@ -877,6 +880,7 @@ static obs_properties_t *sr_playback_properties(void *data)
 	const char *media_filter = obs_module_text("MediaFilter");
 	obs_properties_add_path(props, S_INTRO_CLIP, obs_module_text("IntroClip"), OBS_PATH_FILE, media_filter, NULL);
 	obs_properties_add_path(props, S_OUTRO_CLIP, obs_module_text("OutroClip"), OBS_PATH_FILE, media_filter, NULL);
+	obs_properties_add_bool(props, S_MUTED, obs_module_text("RunMuted"));
 
 
 	if (data)
@@ -894,6 +898,7 @@ static void sr_playback_defaults(obs_data_t *settings)
 	obs_data_set_default_bool(settings, S_BACKWARD, false);
 	obs_data_set_default_int(settings, S_END_ACTION, SR_END_FREEZE);
 	obs_data_set_default_bool(settings, S_AUTOPLAY, true);
+	obs_data_set_default_bool(settings, S_MUTED, false);
 }
 
 static uint32_t sr_playback_get_width(void *data)
