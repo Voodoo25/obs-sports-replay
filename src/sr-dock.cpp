@@ -24,6 +24,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 
 #include <obs-module.h>
 #include <obs-frontend-api.h>
+#include <util/platform.h>
 
 #include <cstring>
 
@@ -178,6 +179,7 @@ public:
 		currentFolder = QString::fromUtf8(dir);
 		bfree(dir);
 
+		loadPlayedPaths();
 		watchFolder();
 		refreshList();
 
@@ -244,6 +246,70 @@ private:
 			watcher->addPath(currentFolder);
 	}
 
+	static QString playedConfigPath()
+	{
+		char *path = obs_module_config_path("played.json");
+		QString result = path ? QString::fromUtf8(path) : QString();
+		bfree(path);
+		return result;
+	}
+
+	/* Persisted across OBS restarts so a crash mid-broadcast doesn't lose
+	 * track of which replays already went to air. */
+	void loadPlayedPaths()
+	{
+		QString cfgPath = playedConfigPath();
+		if (cfgPath.isEmpty())
+			return;
+		QByteArray cfgUtf8 = cfgPath.toUtf8();
+		obs_data_t *data = obs_data_create_from_json_file(cfgUtf8.constData());
+		if (!data)
+			return;
+
+		obs_data_array_t *arr = obs_data_get_array(data, "played");
+		if (arr) {
+			const size_t count = obs_data_array_count(arr);
+			for (size_t i = 0; i < count; i++) {
+				obs_data_t *entry = obs_data_array_item(arr, i);
+				const char *p = obs_data_get_string(entry, "path");
+				if (p && *p)
+					playedPaths.insert(QString::fromUtf8(p));
+				obs_data_release(entry);
+			}
+			obs_data_array_release(arr);
+		}
+		obs_data_release(data);
+	}
+
+	void savePlayedPaths()
+	{
+		QString cfgPath = playedConfigPath();
+		if (cfgPath.isEmpty())
+			return;
+
+		char *dir = obs_module_config_path("");
+		if (dir) {
+			os_mkdirs(dir);
+			bfree(dir);
+		}
+
+		obs_data_array_t *arr = obs_data_array_create();
+		for (const QString &p : playedPaths) {
+			obs_data_t *entry = obs_data_create();
+			QByteArray pUtf8 = p.toUtf8();
+			obs_data_set_string(entry, "path", pUtf8.constData());
+			obs_data_array_push_back(arr, entry);
+			obs_data_release(entry);
+		}
+
+		obs_data_t *data = obs_data_create();
+		obs_data_set_array(data, "played", arr);
+		QByteArray cfgUtf8 = cfgPath.toUtf8();
+		obs_data_save_json(data, cfgUtf8.constData());
+		obs_data_array_release(arr);
+		obs_data_release(data);
+	}
+
 	void refreshList()
 	{
 		list->clear();
@@ -257,6 +323,23 @@ private:
 		QStringList filters;
 		filters << "*.mp4";
 		QFileInfoList files = dir.entryInfoList(filters, QDir::Files, QDir::Time);
+
+		/* drop played-markers for replays that no longer exist (deleted
+		 * from the folder), so the persisted list doesn't grow stale */
+		QSet<QString> existing;
+		for (const QFileInfo &fi : files)
+			existing.insert(fi.absoluteFilePath());
+		bool pruned = false;
+		for (auto it = playedPaths.begin(); it != playedPaths.end();) {
+			if (!existing.contains(*it)) {
+				it = playedPaths.erase(it);
+				pruned = true;
+			} else {
+				++it;
+			}
+		}
+		if (pruned)
+			savePlayedPaths();
 
 		int count = 0;
 		for (const QFileInfo &fi : files) {
@@ -308,6 +391,7 @@ private:
 
 		if (!playedPaths.contains(filePath)) {
 			playedPaths.insert(filePath);
+			savePlayedPaths();
 			QPixmap pixmap = item->icon().pixmap(THUMB_W, THUMB_H);
 			drawPlayedBadge(pixmap);
 			item->setIcon(QIcon(pixmap));
