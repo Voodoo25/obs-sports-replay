@@ -17,6 +17,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 */
 
 #include <obs-module.h>
+#include <obs-frontend-api.h>
 #include <plugin-support.h>
 #include <util/platform.h>
 #include <util/threading.h>
@@ -102,6 +103,7 @@ struct sr_playback {
 	obs_hotkey_id hk_quarter;
 	obs_hotkey_id hk_reverse;
 	obs_hotkey_id hk_play_last;
+	obs_hotkey_id hk_send_to_program;
 };
 
 /* ------------------------------------------------------------------ */
@@ -638,6 +640,57 @@ static void hk_play_last_cb(void *data, obs_hotkey_id id, obs_hotkey_t *hotkey, 
 	}
 }
 
+struct find_scene_ctx {
+	obs_source_t *target;
+	char *found_name;
+};
+
+static bool enum_scene_item_cb(obs_scene_t *scene, obs_sceneitem_t *item, void *param)
+{
+	struct find_scene_ctx *ctx = param;
+	if (obs_sceneitem_get_source(item) != ctx->target)
+		return true;
+	ctx->found_name = bstrdup(obs_source_get_name(obs_scene_get_source(scene)));
+	return false;
+}
+
+/* Finds the scene this playback source lives in, so the "send to program"
+ * hotkey can jump straight there without needing a separate scene picker. */
+static char *sr_playback_find_containing_scene(struct sr_playback *p)
+{
+	struct obs_frontend_source_list scenes = {0};
+	obs_frontend_get_scenes(&scenes);
+
+	char *found = NULL;
+	for (size_t i = 0; i < scenes.sources.num && !found; i++) {
+		obs_scene_t *scene = obs_scene_from_source(scenes.sources.array[i]);
+		struct find_scene_ctx ctx = {p->self, NULL};
+		obs_scene_enum_items(scene, enum_scene_item_cb, &ctx);
+		found = ctx.found_name;
+	}
+
+	obs_frontend_source_list_free(&scenes);
+	return found;
+}
+
+/* Cuts the program output directly to this source's scene, bypassing preview
+ * / Studio Mode, the same way OBS's own "switch to scene" hotkey does when
+ * Studio Mode is off. */
+static void hk_send_to_program_cb(void *data, obs_hotkey_id id, obs_hotkey_t *hotkey, bool pressed)
+{
+	UNUSED_PARAMETER(id);
+	UNUSED_PARAMETER(hotkey);
+	if (!pressed)
+		return;
+
+	struct sr_playback *p = data;
+	char *scene_name = sr_playback_find_containing_scene(p);
+	if (scene_name) {
+		sr_switch_to_scene(scene_name);
+		bfree(scene_name);
+	}
+}
+
 /* ------------------------------------------------------------------ */
 /* source callbacks                                                    */
 
@@ -732,6 +785,9 @@ static void *sr_playback_create(obs_data_t *settings, obs_source_t *source)
 						   obs_module_text("Hotkey.ReverseToggle"), hk_reverse_cb, p);
 	p->hk_play_last = obs_hotkey_register_source(source, "SportsReplay.PlayLast",
 						     obs_module_text("Hotkey.PlayLast"), hk_play_last_cb, p);
+	p->hk_send_to_program = obs_hotkey_register_source(source, "SportsReplay.SendToProgram",
+							   obs_module_text("Hotkey.SendToProgram"),
+							   hk_send_to_program_cb, p);
 
 	sr_playback_update(p, settings);
 	return p;
@@ -751,6 +807,7 @@ static void sr_playback_destroy(void *data)
 	obs_hotkey_unregister(p->hk_quarter);
 	obs_hotkey_unregister(p->hk_reverse);
 	obs_hotkey_unregister(p->hk_play_last);
+	obs_hotkey_unregister(p->hk_send_to_program);
 
 	if (p->have_replay)
 		sr_replay_free(&p->replay);
