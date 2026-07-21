@@ -27,6 +27,11 @@ extern "C" {
 #define SR_CAPTURE_ID "sports_replay_capture"
 #define SR_PLAYBACK_ID "sports_replay"
 
+/* Settings key on a playback source naming the camera source it captures
+ * from. Shared with the dock, which needs it to route a saved replay file
+ * back to the playback source/scene for the camera it came from. */
+#define S_CAPTURE_SOURCE "capture_source"
+
 /* Returns the ring buffer of a capture filter instance (obs_obj_get_data
  * of a source whose id is SR_CAPTURE_ID). Used by the playback source to
  * take replay snapshots. */

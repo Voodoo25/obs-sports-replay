@@ -49,6 +49,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <QShowEvent>
 #include <QPainter>
 #include <QSet>
+#include <QRegularExpression>
 
 #define THUMB_W 112
 #define THUMB_H 63
@@ -89,6 +90,40 @@ QByteArray firstReplaySource()
 	QStringList names;
 	obs_enum_sources(enum_replay_sources, &names);
 	return names.isEmpty() ? QByteArray() : names.first().toUtf8();
+}
+
+/* Name of the Sports Replay source whose "capture_source" setting matches
+ * cameraName, or empty if none do. */
+QByteArray replaySourceForCamera(const QString &cameraName)
+{
+	QStringList names;
+	obs_enum_sources(enum_replay_sources, &names);
+
+	QByteArray cameraUtf8 = cameraName.toUtf8();
+	for (const QString &name : names) {
+		QByteArray nameUtf8 = name.toUtf8();
+		obs_source_t *source = obs_get_source_by_name(nameUtf8.constData());
+		if (!source)
+			continue;
+		obs_data_t *settings = obs_source_get_settings(source);
+		const char *capture = obs_data_get_string(settings, S_CAPTURE_SOURCE);
+		bool match = capture && cameraUtf8 == capture;
+		obs_data_release(settings);
+		obs_source_release(source);
+		if (match)
+			return nameUtf8;
+	}
+	return QByteArray();
+}
+
+/* Extracts the camera name from a saved replay's base filename, of the form
+ * "<camera>_<YYYYMMDD-HHMMSS>" (see sr_playback_capture_replay). Empty if the
+ * name doesn't match that pattern (e.g. a file dropped in by hand). */
+QString cameraNameFromFile(const QString &baseName)
+{
+	static const QRegularExpression re(QStringLiteral("^(.*)_\\d{8}-\\d{6}$"));
+	QRegularExpressionMatch m = re.match(baseName);
+	return m.hasMatch() ? m.captured(1) : QString();
 }
 
 /* The scene source that contains the given source, or nullptr (ref'd). */
@@ -373,7 +408,14 @@ private:
 		QString filePath = item->data(Qt::UserRole).toString();
 		QByteArray path = filePath.toUtf8();
 
-		QByteArray srcName = firstReplaySource();
+		/* route to the playback source for the camera this replay was
+		 * captured from, falling back to the first one found if the
+		 * filename doesn't match the expected pattern or no source
+		 * claims that camera anymore */
+		QString cameraName = cameraNameFromFile(QFileInfo(filePath).completeBaseName());
+		QByteArray srcName = cameraName.isEmpty() ? QByteArray() : replaySourceForCamera(cameraName);
+		if (srcName.isEmpty())
+			srcName = firstReplaySource();
 		if (srcName.isEmpty())
 			return;
 

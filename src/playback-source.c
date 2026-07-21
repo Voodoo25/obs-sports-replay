@@ -38,7 +38,6 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <util/dstr.h>
 #include <util/platform.h>
 
-#define S_CAPTURE_SOURCE "capture_source"
 #define S_SPEED "speed_percent"
 #define S_BACKWARD "backward"
 #define S_END_ACTION "end_action"
