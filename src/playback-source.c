@@ -105,6 +105,7 @@ struct sr_playback {
 	obs_hotkey_id hk_reverse;
 	obs_hotkey_id hk_play_last;
 	obs_hotkey_id hk_send_to_program;
+	obs_hotkey_id hk_capture_only;
 };
 
 /* ------------------------------------------------------------------ */
@@ -154,7 +155,12 @@ static int sr_playback_effective_end_action(const struct sr_playback *p)
 	return (p->end_action_override >= 0) ? p->end_action_override : p->end_action;
 }
 
-static void sr_playback_capture_replay(struct sr_playback *p)
+/* Grabs the current buffer, saves it to disk (so it shows up in the dock
+ * panel), and optionally starts playing it right away. With play=false, the
+ * snapshot is only captured to the file - useful for stocking up replays
+ * from a camera that isn't live yet without disturbing this source's own
+ * playback state. */
+static void sr_playback_capture_replay_ex(struct sr_playback *p, bool play)
 {
 	if (!p->capture_source_name || !*p->capture_source_name)
 		return;
@@ -213,7 +219,15 @@ static void sr_playback_capture_replay(struct sr_playback *p)
 	obs_log(LOG_INFO, "captured replay: %zu frames, %.2f s", replay.video.num,
 		(double)(replay.last_ts - replay.first_ts) / 1e9);
 
-	sr_playback_install_replay(p, &replay, -1);
+	if (play)
+		sr_playback_install_replay(p, &replay, -1);
+	else
+		sr_replay_free(&replay);
+}
+
+static void sr_playback_capture_replay(struct sr_playback *p)
+{
+	sr_playback_capture_replay_ex(p, true);
 }
 
 void sr_playback_play_file(obs_source_t *source, const char *path)
@@ -480,6 +494,14 @@ static void hk_capture_cb(void *data, obs_hotkey_id id, obs_hotkey_t *hotkey, bo
 	UNUSED_PARAMETER(hotkey);
 	if (pressed)
 		sr_playback_capture_replay(data);
+}
+
+static void hk_capture_only_cb(void *data, obs_hotkey_id id, obs_hotkey_t *hotkey, bool pressed)
+{
+	UNUSED_PARAMETER(id);
+	UNUSED_PARAMETER(hotkey);
+	if (pressed)
+		sr_playback_capture_replay_ex(data, false);
 }
 
 static void hk_play_pause_cb(void *data, obs_hotkey_id id, obs_hotkey_t *hotkey, bool pressed)
@@ -790,6 +812,8 @@ static void *sr_playback_create(obs_data_t *settings, obs_source_t *source)
 	p->hk_send_to_program = obs_hotkey_register_source(source, "SportsReplay.SendToProgram",
 							   obs_module_text("Hotkey.SendToProgram"),
 							   hk_send_to_program_cb, p);
+	p->hk_capture_only = obs_hotkey_register_source(source, "SportsReplay.CaptureOnly",
+							obs_module_text("Hotkey.CaptureOnly"), hk_capture_only_cb, p);
 
 	sr_playback_update(p, settings);
 	return p;
@@ -810,6 +834,7 @@ static void sr_playback_destroy(void *data)
 	obs_hotkey_unregister(p->hk_reverse);
 	obs_hotkey_unregister(p->hk_play_last);
 	obs_hotkey_unregister(p->hk_send_to_program);
+	obs_hotkey_unregister(p->hk_capture_only);
 
 	if (p->have_replay)
 		sr_replay_free(&p->replay);
