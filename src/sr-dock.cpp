@@ -46,6 +46,8 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <QPixmap>
 #include <QIcon>
 #include <QShowEvent>
+#include <QPainter>
+#include <QSet>
 
 #define THUMB_W 112
 #define THUMB_H 63
@@ -106,6 +108,28 @@ obs_source_t *sceneContaining(const char *sourceName)
 	}
 	obs_frontend_source_list_free(&scenes);
 	return result;
+}
+
+/* Stamps a green checkmark badge on the bottom-right corner of a thumbnail
+ * pixmap, marking a replay that's already been sent to program so it's not
+ * confused with one still waiting to be used. */
+void drawPlayedBadge(QPixmap &pixmap)
+{
+	QPainter painter(&pixmap);
+	painter.setRenderHint(QPainter::Antialiasing);
+
+	const int badgeSize = 18;
+	const int margin = 3;
+	QRect badgeRect(pixmap.width() - badgeSize - margin, pixmap.height() - badgeSize - margin, badgeSize, badgeSize);
+
+	painter.setPen(Qt::NoPen);
+	painter.setBrush(QColor(46, 204, 64));
+	painter.drawRoundedRect(badgeRect, 4, 4);
+
+	QPen checkPen(Qt::white, 2, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+	painter.setPen(checkPen);
+	painter.drawLine(badgeRect.left() + 4, badgeRect.center().y() + 1, badgeRect.left() + 7, badgeRect.bottom() - 4);
+	painter.drawLine(badgeRect.left() + 7, badgeRect.bottom() - 4, badgeRect.right() - 3, badgeRect.top() + 4);
 }
 
 class SrDock : public QWidget {
@@ -244,7 +268,10 @@ private:
 			uint8_t *rgba = nullptr;
 			if (sr_thumbnail_rgba(path.constData(), THUMB_W, THUMB_H, &rgba) && rgba) {
 				QImage img(rgba, THUMB_W, THUMB_H, THUMB_W * 4, QImage::Format_RGBA8888);
-				icon = QIcon(QPixmap::fromImage(img.copy()));
+				QPixmap pixmap = QPixmap::fromImage(img.copy());
+				if (playedPaths.contains(fi.absoluteFilePath()))
+					drawPlayedBadge(pixmap);
+				icon = QIcon(pixmap);
 				bfree(rgba);
 			}
 
@@ -260,7 +287,8 @@ private:
 	{
 		if (!item)
 			return;
-		QByteArray path = item->data(Qt::UserRole).toString().toUtf8();
+		QString filePath = item->data(Qt::UserRole).toString();
+		QByteArray path = filePath.toUtf8();
 
 		QByteArray srcName = firstReplaySource();
 		if (srcName.isEmpty())
@@ -277,12 +305,20 @@ private:
 			obs_frontend_set_current_scene(scene);
 			obs_source_release(scene);
 		}
+
+		if (!playedPaths.contains(filePath)) {
+			playedPaths.insert(filePath);
+			QPixmap pixmap = item->icon().pixmap(THUMB_W, THUMB_H);
+			drawPlayedBadge(pixmap);
+			item->setIcon(QIcon(pixmap));
+		}
 	}
 
 	QString currentFolder;
 	QListWidget *list = nullptr;
 	QFileSystemWatcher *watcher = nullptr;
 	QTimer *refreshTimer = nullptr;
+	QSet<QString> playedPaths;
 };
 
 } // namespace
