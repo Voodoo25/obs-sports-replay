@@ -82,6 +82,21 @@ while cutting memory use by roughly **50–100×**.
 Assign hotkeys under *Settings → Hotkeys* (capture, play/pause, speed
 presets, reverse, play last saved replay).
 
+## Questions, ideas & feedback
+
+Come say hi in [**Discussions**](../../discussions) — that is the best place to
+reach me:
+
+- ❓ **[Q&A](../../discussions/categories/q-a)** — something not working, or not
+  sure how to set it up.
+- 💡 **[Ideas](../../discussions/categories/ideas)** — a feature you need for
+  your workflow. This is what drives the roadmap.
+- 📺 **[Show and tell](../../discussions/categories/show-and-tell)** — using it
+  on a real broadcast? I would love to see it.
+
+For confirmed bugs, open an [issue](../../issues).
+*Se habla español* — escribí en el idioma que prefieras.
+
 ## Building from source
 
 Uses the standard [OBS plugin template](https://github.com/obsproject/obs-plugintemplate)
