@@ -46,6 +46,13 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #define S_OUTRO_CLIP "outro_clip"
 #define S_MUTED "run_muted"
 
+/* How long to sit on a replay scene that came up empty before bouncing back.
+ * activate() runs on the UI thread in the middle of the scene change, while
+ * the tick that performs the bounce runs on the graphics thread: waiting a
+ * beat guarantees the frontend has recorded the change, so "previous scene"
+ * names the scene we just left and not the one before it. */
+#define SR_EMPTY_BOUNCE_SEC 0.5f
+
 enum sr_end_action {
 	SR_END_FREEZE = 0, /* stay on the last frame */
 	SR_END_RETURN = 1, /* cut back to the previous scene */
@@ -77,6 +84,9 @@ struct sr_playback {
 	/* playhead is an absolute timestamp within [first_ts, last_ts] */
 	uint64_t playhead;
 	size_t audio_idx;
+
+	float bounce_countdown; /* seconds left before leaving a replay scene
+				   that has nothing to play; 0 = not pending */
 
 	int phase;
 	struct sr_clip *intro_clip;
@@ -140,6 +150,7 @@ static void sr_playback_install_replay(struct sr_playback *p, struct sr_replay *
 	p->replay = *replay;
 	p->have_replay = true;
 	p->end_action_override = end_action_override;
+	p->bounce_countdown = 0.0f;
 
 	sr_decoder_destroy(p->decoder);
 	p->decoder = sr_decoder_create(p->replay.codec_id, p->replay.extradata, p->replay.extradata_size);
@@ -155,23 +166,33 @@ static int sr_playback_effective_end_action(const struct sr_playback *p)
 	return (p->end_action_override >= 0) ? p->end_action_override : p->end_action;
 }
 
+/* Cuts back to whatever scene was live before this one, if we know it. */
+static void sr_playback_return_to_previous(void)
+{
+	char *prev = sr_scene_tracker_previous();
+	if (prev) {
+		sr_switch_to_scene_return(prev);
+		bfree(prev);
+	}
+}
+
 /* Grabs the current buffer, saves it to disk (so it shows up in the dock
  * panel), and optionally starts playing it right away. With play=false, the
  * snapshot is only captured to the file - useful for stocking up replays
  * from a camera that isn't live yet without disturbing this source's own
- * playback state. */
-static void sr_playback_capture_replay_ex(struct sr_playback *p, bool play)
+ * playback state. Returns false when there was nothing to capture. */
+static bool sr_playback_capture_replay_ex(struct sr_playback *p, bool play)
 {
 	if (!p->capture_source_name || !*p->capture_source_name) {
 		obs_log(LOG_WARNING, "'%s': no capture source selected, nothing to replay",
 			obs_source_get_name(p->self));
-		return;
+		return false;
 	}
 
 	obs_source_t *target = obs_get_source_by_name(p->capture_source_name);
 	if (!target) {
 		obs_log(LOG_WARNING, "capture source '%s' not found", p->capture_source_name);
-		return;
+		return false;
 	}
 
 	struct find_capture_ctx ctx = {0};
@@ -196,7 +217,7 @@ static void sr_playback_capture_replay_ex(struct sr_playback *p, bool play)
 	if (!got) {
 		obs_log(LOG_WARNING, "'%s': nothing captured - '%s' has no video in the buffer yet",
 			obs_source_get_name(p->self), p->capture_source_name);
-		return;
+		return false;
 	}
 
 	/* auto-save to disk before publishing, while we still solely own the
@@ -234,11 +255,13 @@ static void sr_playback_capture_replay_ex(struct sr_playback *p, bool play)
 		sr_playback_install_replay(p, &replay, -1);
 	else
 		sr_replay_free(&replay);
+
+	return true;
 }
 
-static void sr_playback_capture_replay(struct sr_playback *p)
+static bool sr_playback_capture_replay(struct sr_playback *p)
 {
-	sr_playback_capture_replay_ex(p, true);
+	return sr_playback_capture_replay_ex(p, true);
 }
 
 void sr_playback_play_file(obs_source_t *source, const char *path)
@@ -405,6 +428,20 @@ static void sr_playback_tick(void *data, float seconds)
 
 	pthread_mutex_lock(&p->mutex);
 
+	if (p->bounce_countdown > 0.0f) {
+		p->bounce_countdown -= seconds;
+		const bool bounce_now = p->bounce_countdown <= 0.0f;
+		if (bounce_now)
+			p->bounce_countdown = 0.0f;
+		pthread_mutex_unlock(&p->mutex);
+		if (bounce_now) {
+			obs_log(LOG_INFO, "'%s': nothing to play, returning to the previous scene",
+				obs_source_get_name(p->self));
+			sr_playback_return_to_previous();
+		}
+		return;
+	}
+
 	if (!p->have_replay || !p->playing || p->paused) {
 		pthread_mutex_unlock(&p->mutex);
 		return;
@@ -426,13 +463,8 @@ static void sr_playback_tick(void *data, float seconds)
 			return_to_scene = (sr_playback_effective_end_action(p) == SR_END_RETURN);
 		}
 		pthread_mutex_unlock(&p->mutex);
-		if (return_to_scene) {
-			char *prev = sr_scene_tracker_previous();
-			if (prev) {
-				sr_switch_to_scene_return(prev);
-				bfree(prev);
-			}
-		}
+		if (return_to_scene)
+			sr_playback_return_to_previous();
 		return;
 	}
 
@@ -487,13 +519,8 @@ static void sr_playback_tick(void *data, float seconds)
 	pthread_mutex_unlock(&p->mutex);
 
 	/* switch scenes outside the lock to avoid re-entrancy on our own state */
-	if (return_to_scene) {
-		char *prev = sr_scene_tracker_previous();
-		if (prev) {
-			sr_switch_to_scene_return(prev);
-			bfree(prev);
-		}
-	}
+	if (return_to_scene)
+		sr_playback_return_to_previous();
 }
 
 /* ------------------------------------------------------------------ */
@@ -787,8 +814,27 @@ static void sr_playback_activate(void *data)
 	if (skip || sr_scene_tracker_consume_returning())
 		return;
 
-	if (p->autoplay)
-		sr_playback_capture_replay(p);
+	if (!p->autoplay || sr_playback_capture_replay(p))
+		return;
+
+	/* Nothing to show. Sitting on a black replay scene mid-broadcast is
+	 * worse than never having cut to it, so bounce back if that's what the
+	 * source is configured to do at the end of a replay. */
+	pthread_mutex_lock(&p->mutex);
+	if (sr_playback_effective_end_action(p) == SR_END_RETURN)
+		p->bounce_countdown = SR_EMPTY_BOUNCE_SEC;
+	pthread_mutex_unlock(&p->mutex);
+}
+
+/* Called when the source leaves the program output. If a bounce was pending,
+ * the operator already cut away on their own - don't yank the program back. */
+static void sr_playback_deactivate(void *data)
+{
+	struct sr_playback *p = data;
+
+	pthread_mutex_lock(&p->mutex);
+	p->bounce_countdown = 0.0f;
+	pthread_mutex_unlock(&p->mutex);
 }
 
 static void *sr_playback_create(obs_data_t *settings, obs_source_t *source)
@@ -959,6 +1005,7 @@ struct obs_source_info sr_playback_info = {
 	.get_defaults = sr_playback_defaults,
 	.get_properties = sr_playback_properties,
 	.activate = sr_playback_activate,
+	.deactivate = sr_playback_deactivate,
 	.video_tick = sr_playback_tick,
 	.get_width = sr_playback_get_width,
 	.get_height = sr_playback_get_height,
