@@ -162,8 +162,11 @@ static int sr_playback_effective_end_action(const struct sr_playback *p)
  * playback state. */
 static void sr_playback_capture_replay_ex(struct sr_playback *p, bool play)
 {
-	if (!p->capture_source_name || !*p->capture_source_name)
+	if (!p->capture_source_name || !*p->capture_source_name) {
+		obs_log(LOG_WARNING, "'%s': no capture source selected, nothing to replay",
+			obs_source_get_name(p->self));
 		return;
+	}
 
 	obs_source_t *target = obs_get_source_by_name(p->capture_source_name);
 	if (!target) {
@@ -185,8 +188,16 @@ static void sr_playback_capture_replay_ex(struct sr_playback *p, bool play)
 	}
 	obs_source_release(target);
 
-	if (!got)
+	/* An empty buffer is the most common "nothing happened" case: the camera
+	 * isn't sending video, or its scene has never been live, so the filter
+	 * never saw a frame. Say so instead of failing silently - with autoplay
+	 * this is exactly why the replay scene stays black and never bounces
+	 * back to the previous scene. */
+	if (!got) {
+		obs_log(LOG_WARNING, "'%s': nothing captured - '%s' has no video in the buffer yet",
+			obs_source_get_name(p->self), p->capture_source_name);
 		return;
+	}
 
 	/* auto-save to disk before publishing, while we still solely own the
 	 * snapshot (mux only reads the packets, no re-encode) */
