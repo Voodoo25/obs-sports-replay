@@ -28,7 +28,7 @@ while cutting memory use by roughly **50–100×**.
 - **Slow motion & reverse** — playback speed from 10% to 400%, hotkeys for
   speed presets and direction.
 - **Configurable end action** — freeze on the last frame, **return to the
-  previous scene**, or loop.
+  previous scene**, **cut to the replay camera's scene**, or loop.
 - **Sponsor bumpers** — optional intro and outro video clips played around
   the replay (e.g. a "REPLAY" sting with a sponsor).
 - **Automatic save to disk** — every replay is saved as an `.mp4` (muxed
