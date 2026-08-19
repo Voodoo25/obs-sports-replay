@@ -57,7 +57,12 @@ enum sr_end_action {
 	SR_END_FREEZE = 0, /* stay on the last frame */
 	SR_END_RETURN = 1, /* cut back to the previous scene */
 	SR_END_LOOP = 2,   /* replay again from the start */
+	SR_END_CAMERA = 3, /* cut to the scene holding the camera that was replayed */
 };
+
+/* End actions that hand the program output to another scene when the replay
+ * is over. */
+#define SR_END_LEAVES_SCENE(ea) ((ea) == SR_END_RETURN || (ea) == SR_END_CAMERA)
 
 /* The playout runs as a small sequence: intro clip, replay, outro clip. */
 enum sr_phase {
@@ -176,6 +181,30 @@ static void sr_playback_return_to_previous(void)
 	}
 }
 
+/* Hands the program output over once the replay is done: back to the scene
+ * that was live before it, or - with SR_END_CAMERA - straight to the scene
+ * holding the camera the replay was captured from, so the broadcast stays on
+ * the angle the action happened on instead of jumping back to whatever was
+ * live before. Call outside p->mutex. */
+static void sr_playback_hand_over_program(struct sr_playback *p, int end_action)
+{
+	if (end_action != SR_END_CAMERA) {
+		sr_playback_return_to_previous();
+		return;
+	}
+
+	pthread_mutex_lock(&p->mutex);
+	char *camera = bstrdup(p->capture_source_name ? p->capture_source_name : "");
+	pthread_mutex_unlock(&p->mutex);
+
+	if (*camera)
+		/* the scene lookup happens on the UI thread, inside the switch */
+		sr_switch_to_scene_of_source_return(camera);
+	else
+		sr_playback_return_to_previous(); /* no camera picked yet */
+	bfree(camera);
+}
+
 /* Grabs the current buffer, saves it to disk (so it shows up in the dock
  * panel), and optionally starts playing it right away. With play=false, the
  * snapshot is only captured to the file - useful for stocking up replays
@@ -276,8 +305,15 @@ void sr_playback_play_file(obs_source_t *source, const char *path)
 	if (!sr_load_replay(path, &replay))
 		return;
 
-	/* replays launched from a file always return to the previous scene */
-	sr_playback_install_replay(p, &replay, SR_END_RETURN);
+	/* Replays launched from a file always hand the program back when they
+	 * end - freezing on a still or looping forever would strand the
+	 * broadcast on the replay scene. Which scene they hand it to still
+	 * follows the source's own setting. */
+	pthread_mutex_lock(&p->mutex);
+	const int end_action = (p->end_action == SR_END_CAMERA) ? SR_END_CAMERA : SR_END_RETURN;
+	pthread_mutex_unlock(&p->mutex);
+
+	sr_playback_install_replay(p, &replay, end_action);
 
 	/* the dock switches to the replay scene right after this, which fires
 	 * activate; don't let autoplay overwrite the file we just loaded */
@@ -456,15 +492,17 @@ static void sr_playback_tick(void *data, float seconds)
 
 	if (p->phase == PHASE_OUTRO) {
 		bool finished = tick_clip_phase(p, p->outro_clip, seconds);
-		bool return_to_scene = false;
+		int hand_over = -1;
 		if (finished) {
 			p->playing = false;
 			obs_source_media_ended(p->self);
-			return_to_scene = (sr_playback_effective_end_action(p) == SR_END_RETURN);
+			const int ea = sr_playback_effective_end_action(p);
+			if (SR_END_LEAVES_SCENE(ea))
+				hand_over = ea;
 		}
 		pthread_mutex_unlock(&p->mutex);
-		if (return_to_scene)
-			sr_playback_return_to_previous();
+		if (hand_over >= 0)
+			sr_playback_hand_over_program(p, hand_over);
 		return;
 	}
 
@@ -496,7 +534,7 @@ static void sr_playback_tick(void *data, float seconds)
 
 	sr_playback_output_audio(p, prev_playhead, p->playhead);
 
-	bool return_to_scene = false;
+	int hand_over = -1;
 	if (ended) {
 		const int ea = sr_playback_effective_end_action(p);
 		if (ea == SR_END_LOOP) {
@@ -512,15 +550,16 @@ static void sr_playback_tick(void *data, float seconds)
 		} else {
 			p->playing = false;
 			obs_source_media_ended(p->self);
-			return_to_scene = (ea == SR_END_RETURN);
+			if (SR_END_LEAVES_SCENE(ea))
+				hand_over = ea;
 		}
 	}
 
 	pthread_mutex_unlock(&p->mutex);
 
 	/* switch scenes outside the lock to avoid re-entrancy on our own state */
-	if (return_to_scene)
-		sr_playback_return_to_previous();
+	if (hand_over >= 0)
+		sr_playback_hand_over_program(p, hand_over);
 }
 
 /* ------------------------------------------------------------------ */
@@ -701,37 +740,11 @@ static void hk_play_last_cb(void *data, obs_hotkey_id id, obs_hotkey_t *hotkey, 
 	}
 }
 
-struct find_scene_ctx {
-	obs_source_t *target;
-	char *found_name;
-};
-
-static bool enum_scene_item_cb(obs_scene_t *scene, obs_sceneitem_t *item, void *param)
-{
-	struct find_scene_ctx *ctx = param;
-	if (obs_sceneitem_get_source(item) != ctx->target)
-		return true;
-	ctx->found_name = bstrdup(obs_source_get_name(obs_scene_get_source(scene)));
-	return false;
-}
-
 /* Finds the scene this playback source lives in, so the "send to program"
  * hotkey can jump straight there without needing a separate scene picker. */
 static char *sr_playback_find_containing_scene(struct sr_playback *p)
 {
-	struct obs_frontend_source_list scenes = {0};
-	obs_frontend_get_scenes(&scenes);
-
-	char *found = NULL;
-	for (size_t i = 0; i < scenes.sources.num && !found; i++) {
-		obs_scene_t *scene = obs_scene_from_source(scenes.sources.array[i]);
-		struct find_scene_ctx ctx = {p->self, NULL};
-		obs_scene_enum_items(scene, enum_scene_item_cb, &ctx);
-		found = ctx.found_name;
-	}
-
-	obs_frontend_source_list_free(&scenes);
-	return found;
+	return sr_find_scene_with_source(obs_source_get_name(p->self));
 }
 
 /* Cuts the program output directly to this source's scene, bypassing preview
@@ -811,6 +824,7 @@ static void sr_playback_activate(void *data)
 	const bool skip = p->skip_next_autocapture;
 	p->skip_next_autocapture = false;
 	pthread_mutex_unlock(&p->mutex);
+
 	if (skip || sr_scene_tracker_consume_returning())
 		return;
 
@@ -821,20 +835,34 @@ static void sr_playback_activate(void *data)
 	 * worse than never having cut to it, so bounce back if that's what the
 	 * source is configured to do at the end of a replay. */
 	pthread_mutex_lock(&p->mutex);
-	if (sr_playback_effective_end_action(p) == SR_END_RETURN)
+	if (SR_END_LEAVES_SCENE(sr_playback_effective_end_action(p)))
 		p->bounce_countdown = SR_EMPTY_BOUNCE_SEC;
 	pthread_mutex_unlock(&p->mutex);
 }
 
-/* Called when the source leaves the program output. If a bounce was pending,
- * the operator already cut away on their own - don't yank the program back. */
+/* Called when the source leaves the program output. The operator cut away on
+ * their own, so everything this source was about to do to the program output
+ * is off: a pending empty-replay bounce, and the playout itself. Ticks keep
+ * running for sources that aren't live, so a replay left playing here would
+ * reach its end seconds later and cut the program back to the replay scene -
+ * mid-game, out of nowhere. The replay itself is kept, so the restart and
+ * play/pause hotkeys can still bring it back. */
 static void sr_playback_deactivate(void *data)
 {
 	struct sr_playback *p = data;
 
 	pthread_mutex_lock(&p->mutex);
 	p->bounce_countdown = 0.0f;
+	const bool was_playing = p->playing;
+	if (was_playing) {
+		p->playing = false;
+		p->paused = false;
+		p->phase = PHASE_IDLE;
+	}
 	pthread_mutex_unlock(&p->mutex);
+
+	if (was_playing)
+		obs_log(LOG_INFO, "'%s': cut away mid-replay, playout stopped", obs_source_get_name(p->self));
 }
 
 static void *sr_playback_create(obs_data_t *settings, obs_source_t *source)
@@ -955,6 +983,7 @@ static obs_properties_t *sr_playback_properties(void *data)
 	obs_property_list_add_int(ea, obs_module_text("EndAction.Freeze"), SR_END_FREEZE);
 	obs_property_list_add_int(ea, obs_module_text("EndAction.Return"), SR_END_RETURN);
 	obs_property_list_add_int(ea, obs_module_text("EndAction.Loop"), SR_END_LOOP);
+	obs_property_list_add_int(ea, obs_module_text("EndAction.Camera"), SR_END_CAMERA);
 
 	obs_properties_add_bool(props, S_AUTOPLAY, obs_module_text("AutoPlay"));
 

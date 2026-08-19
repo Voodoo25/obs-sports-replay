@@ -38,13 +38,24 @@ char *sr_scene_tracker_previous(void);
 void sr_switch_to_scene(const char *scene_name);
 
 /* Same as sr_switch_to_scene(), but marks the switch as a "return to
- * previous scene" bounce for the duration of the activation, so a playback
- * source landing there doesn't auto-capture a fresh replay. */
+ * previous scene" bounce, so a playback source landing there doesn't
+ * auto-capture a fresh replay. */
 void sr_switch_to_scene_return(const char *scene_name);
 
-/* Reads and clears the "return to previous scene" flag; true if the current
- * activation was caused by sr_switch_to_scene_return(). */
+/* Reads and clears the "returning to previous scene" mark; true when the
+ * activation happening right now was caused by sr_switch_to_scene_return()
+ * or sr_switch_to_scene_of_source_return(). */
 bool sr_scene_tracker_consume_returning(void);
+
+/* Switches the program output to the scene holding the named source (a
+ * camera), marked as a return bounce. Falls back to the previous scene when
+ * no scene holds it. */
+void sr_switch_to_scene_of_source_return(const char *source_name);
+
+/* Name of the scene holding the named source, or NULL. Free with bfree().
+ * Enumerates the scene list, so don't call it while holding a scene lock -
+ * i.e. not from a source's activate() or video_tick(). */
+char *sr_find_scene_with_source(const char *source_name);
 
 #ifdef __cplusplus
 }
