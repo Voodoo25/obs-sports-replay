@@ -1013,8 +1013,12 @@ static obs_properties_t *sr_playback_properties(void *data)
 	obs_properties_add_bool(props, S_MUTED, obs_module_text("RunMuted"));
 
 
+	/* button2: the plain obs_properties_add_button() is deprecated, and the
+	 * CI builds with -Werror. Handing the source's own data in as priv
+	 * keeps what the callback receives identical. */
 	if (data)
-		obs_properties_add_button(props, "capture_now", obs_module_text("CaptureNow"), capture_button_clicked);
+		obs_properties_add_button2(props, "capture_now", obs_module_text("CaptureNow"),
+					   capture_button_clicked, data);
 
 	char credit[256];
 	obs_properties_add_text(props, "sr_credit", sr_plugin_credit_html(credit, sizeof(credit)), OBS_TEXT_INFO);
