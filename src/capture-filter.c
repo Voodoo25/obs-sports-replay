@@ -118,8 +118,8 @@ static struct obs_source_frame *sr_capture_filter_video(void *data, struct obs_s
 	if (!c->encoder) {
 		struct obs_video_info ovi;
 		obs_get_video_info(&ovi);
-		c->encoder = sr_encoder_create(frame->width, frame->height, ovi.fps_num, ovi.fps_den, c->backend,
-					       c->qp);
+		c->encoder =
+			sr_encoder_create(frame->width, frame->height, ovi.fps_num, ovi.fps_den, c->backend, c->qp);
 		if (!c->encoder) {
 			obs_log(LOG_ERROR, "'%s': no H.264 encoder available, replay capture disabled",
 				obs_source_get_name(c->self));

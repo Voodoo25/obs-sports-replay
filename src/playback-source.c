@@ -894,20 +894,20 @@ static void *sr_playback_create(obs_data_t *settings, obs_source_t *source)
 	p->end_action_override = -1;
 	pthread_mutex_init(&p->mutex, NULL);
 
-	p->hk_capture = obs_hotkey_register_source(source, "SportsReplay.Capture",
-						   obs_module_text("Hotkey.Capture"), hk_capture_cb, p);
+	p->hk_capture = obs_hotkey_register_source(source, "SportsReplay.Capture", obs_module_text("Hotkey.Capture"),
+						   hk_capture_cb, p);
 	p->hk_play_pause = obs_hotkey_register_source(source, "SportsReplay.PlayPause",
 						      obs_module_text("Hotkey.PlayPause"), hk_play_pause_cb, p);
-	p->hk_restart = obs_hotkey_register_source(source, "SportsReplay.Restart",
-						   obs_module_text("Hotkey.Restart"), hk_restart_cb, p);
+	p->hk_restart = obs_hotkey_register_source(source, "SportsReplay.Restart", obs_module_text("Hotkey.Restart"),
+						   hk_restart_cb, p);
 	p->hk_faster = obs_hotkey_register_source(source, "SportsReplay.Faster", obs_module_text("Hotkey.Faster"),
 						  hk_faster_cb, p);
 	p->hk_slower = obs_hotkey_register_source(source, "SportsReplay.Slower", obs_module_text("Hotkey.Slower"),
 						  hk_slower_cb, p);
 	p->hk_normal = obs_hotkey_register_source(source, "SportsReplay.NormalSpeed",
 						  obs_module_text("Hotkey.NormalSpeed"), hk_normal_cb, p);
-	p->hk_half = obs_hotkey_register_source(source, "SportsReplay.HalfSpeed",
-						obs_module_text("Hotkey.HalfSpeed"), hk_half_cb, p);
+	p->hk_half = obs_hotkey_register_source(source, "SportsReplay.HalfSpeed", obs_module_text("Hotkey.HalfSpeed"),
+						hk_half_cb, p);
 	p->hk_quarter = obs_hotkey_register_source(source, "SportsReplay.QuarterSpeed",
 						   obs_module_text("Hotkey.QuarterSpeed"), hk_quarter_cb, p);
 	p->hk_reverse = obs_hotkey_register_source(source, "SportsReplay.ReverseToggle",
@@ -992,8 +992,7 @@ static obs_properties_t *sr_playback_properties(void *data)
 	struct enum_capture_ctx ctx = {.list = list};
 	obs_enum_sources(enum_sources_for_list, &ctx);
 
-	obs_property_t *p = obs_properties_add_float_slider(props, S_SPEED, obs_module_text("Speed"), 10.0, 400.0,
-							    5.0);
+	obs_property_t *p = obs_properties_add_float_slider(props, S_SPEED, obs_module_text("Speed"), 10.0, 400.0, 5.0);
 	obs_property_float_set_suffix(p, " %");
 
 	obs_properties_add_bool(props, S_BACKWARD, obs_module_text("Backward"));
@@ -1012,13 +1011,12 @@ static obs_properties_t *sr_playback_properties(void *data)
 	obs_properties_add_path(props, S_OUTRO_CLIP, obs_module_text("OutroClip"), OBS_PATH_FILE, media_filter, NULL);
 	obs_properties_add_bool(props, S_MUTED, obs_module_text("RunMuted"));
 
-
 	/* button2: the plain obs_properties_add_button() is deprecated, and the
 	 * CI builds with -Werror. Handing the source's own data in as priv
 	 * keeps what the callback receives identical. */
 	if (data)
-		obs_properties_add_button2(props, "capture_now", obs_module_text("CaptureNow"),
-					   capture_button_clicked, data);
+		obs_properties_add_button2(props, "capture_now", obs_module_text("CaptureNow"), capture_button_clicked,
+					   data);
 
 	char credit[256];
 	obs_properties_add_text(props, "sr_credit", sr_plugin_credit_html(credit, sizeof(credit)), OBS_TEXT_INFO);

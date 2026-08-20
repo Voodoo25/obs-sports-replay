@@ -185,8 +185,7 @@ static bool decode_next(struct sr_clip *c)
 				pts = c->fallback_pts++;
 			if (c->start_pts == AV_NOPTS_VALUE)
 				c->start_pts = pts;
-			c->ready_pts_ns = av_rescale_q(pts - c->start_pts, c->time_base,
-						       (AVRational){1, 1000000000});
+			c->ready_pts_ns = av_rescale_q(pts - c->start_pts, c->time_base, (AVRational){1, 1000000000});
 			if (!scale_ready(c))
 				continue;
 			return true;

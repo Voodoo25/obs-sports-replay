@@ -92,8 +92,7 @@ bool sr_save_replay(const struct sr_replay *r, const char *path)
 		if (i + 1 < r->video.num)
 			dur_ns = (int64_t)r->video.array[i + 1].ts - (int64_t)r->video.array[i].ts;
 		else
-			dur_ns = (r->video.num > 1) ? (int64_t)r->video.array[i].ts -
-							      (int64_t)r->video.array[i - 1].ts
+			dur_ns = (r->video.num > 1) ? (int64_t)r->video.array[i].ts - (int64_t)r->video.array[i - 1].ts
 						    : 33333333;
 
 		pkt->pts = av_rescale_q(pts_ns, NS_TB, st->time_base);

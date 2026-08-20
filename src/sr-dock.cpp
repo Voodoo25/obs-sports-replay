@@ -158,7 +158,8 @@ void drawPlayedBadge(QPixmap &pixmap)
 
 	const int badgeSize = 18;
 	const int margin = 3;
-	QRect badgeRect(pixmap.width() - badgeSize - margin, pixmap.height() - badgeSize - margin, badgeSize, badgeSize);
+	QRect badgeRect(pixmap.width() - badgeSize - margin, pixmap.height() - badgeSize - margin, badgeSize,
+			badgeSize);
 
 	painter.setPen(Qt::NoPen);
 	painter.setBrush(QColor(46, 204, 64));
@@ -166,7 +167,8 @@ void drawPlayedBadge(QPixmap &pixmap)
 
 	QPen checkPen(Qt::white, 2, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
 	painter.setPen(checkPen);
-	painter.drawLine(badgeRect.left() + 4, badgeRect.center().y() + 1, badgeRect.left() + 7, badgeRect.bottom() - 4);
+	painter.drawLine(badgeRect.left() + 4, badgeRect.center().y() + 1, badgeRect.left() + 7,
+			 badgeRect.bottom() - 4);
 	painter.drawLine(badgeRect.left() + 7, badgeRect.bottom() - 4, badgeRect.right() - 3, badgeRect.top() + 4);
 }
 
