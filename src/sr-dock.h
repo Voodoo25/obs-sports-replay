@@ -26,6 +26,12 @@ extern "C" {
  * Call once, after the frontend is ready (obs_module_post_load). */
 void sr_dock_register(void);
 
+/* Marks a saved replay as already gone to air, the same way launching one
+ * from the dock does. For replays that go straight to program from a hotkey:
+ * they were watched, so the panel has to show it. No-op if the dock isn't
+ * up. Safe to call from any thread. */
+void sr_dock_mark_played(const char *path);
+
 #ifdef __cplusplus
 }
 #endif

@@ -24,6 +24,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <media-io/video-io.h>
 
 #include "sr-buffer.h"
+#include "sr-dock.h"
 #include "sr-codec.h"
 #include "sr-capture.h"
 #include "sr-scene-tracker.h"
@@ -249,6 +250,13 @@ static bool sr_playback_capture_replay_ex(struct sr_playback *p, bool play)
 		return false;
 	}
 
+	/* A replay that plays while this source is live goes to air the moment
+	 * it is captured, so the dock has to show it as already used - the same
+	 * badge a replay launched from the panel gets. Capture-only, and
+	 * captures taken while the replay scene is off air, are not watched by
+	 * anyone and stay unmarked. */
+	const bool goes_to_air = play && obs_source_active(p->self);
+
 	/* auto-save to disk before publishing, while we still solely own the
 	 * snapshot (mux only reads the packets, no re-encode) */
 	char *save_dir = sr_config_get_save_dir();
@@ -272,7 +280,8 @@ static bool sr_playback_capture_replay_ex(struct sr_playback *p, bool play)
 		dstr_cat_ch(&path, '_');
 		dstr_cat(&path, stamp);
 		dstr_cat(&path, ".mp4");
-		sr_save_replay(&replay, path.array);
+		if (sr_save_replay(&replay, path.array) && goes_to_air)
+			sr_dock_mark_played(path.array);
 		dstr_free(&path);
 	}
 	bfree(save_dir);

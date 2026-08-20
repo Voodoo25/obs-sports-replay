@@ -50,6 +50,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <QShowEvent>
 #include <QPainter>
 #include <QSet>
+#include <QPointer>
 #include <QRegularExpression>
 
 #define THUMB_W 112
@@ -222,6 +223,29 @@ public:
 		connect(gear, &QToolButton::clicked, this, [this]() { openSettings(); });
 		connect(list, &QListWidget::itemDoubleClicked, this, [this](QListWidgetItem *item) { launch(item); });
 		connect(watcher, &QFileSystemWatcher::directoryChanged, this, [this]() { refreshTimer->start(700); });
+	}
+
+	/* UI thread. Flags a replay as aired and badges it if it is already
+	 * on the list; a replay saved seconds ago usually isn't yet, and the
+	 * folder watcher's refresh picks the badge up from playedPaths. */
+	void markPlayed(const QString &path)
+	{
+		QString abs = QFileInfo(path).absoluteFilePath();
+		if (abs.isEmpty() || playedPaths.contains(abs))
+			return;
+
+		playedPaths.insert(abs);
+		savePlayedPaths();
+
+		for (int i = 0; i < list->count(); i++) {
+			QListWidgetItem *item = list->item(i);
+			if (item->data(Qt::UserRole).toString() != abs)
+				continue;
+			QPixmap pixmap = item->icon().pixmap(THUMB_W, THUMB_H);
+			drawPlayedBadge(pixmap);
+			item->setIcon(QIcon(pixmap));
+			break;
+		}
 	}
 
 protected:
@@ -451,12 +475,35 @@ private:
 	QSet<QString> playedPaths;
 };
 
+/* The live dock, so replays that go to air from a hotkey can be marked
+ * without a lookup. QPointer so it reads back null once OBS destroys it. */
+QPointer<SrDock> g_dock;
+
+void mark_played_task(void *param)
+{
+	char *path = static_cast<char *>(param);
+	if (g_dock)
+		g_dock->markPlayed(QString::fromUtf8(path));
+	bfree(path);
+}
+
 } // namespace
 
 void sr_dock_register(void)
 {
 	auto *dock = new SrDock();
 	dock->setObjectName("SportsReplayDock");
-	if (!obs_frontend_add_dock_by_id("sports_replay_dock", obs_module_text("Dock.Title"), dock))
+	if (!obs_frontend_add_dock_by_id("sports_replay_dock", obs_module_text("Dock.Title"), dock)) {
 		delete dock;
+		return;
+	}
+	g_dock = dock;
+}
+
+void sr_dock_mark_played(const char *path)
+{
+	if (!path || !*path)
+		return;
+	/* the dock is a widget: touch it on the UI thread */
+	obs_queue_task(OBS_TASK_UI, mark_played_task, bstrdup(path), false);
 }
