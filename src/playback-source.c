@@ -825,7 +825,16 @@ static void sr_playback_activate(void *data)
 	p->skip_next_autocapture = false;
 	pthread_mutex_unlock(&p->mutex);
 
-	if (skip || sr_scene_tracker_consume_returning())
+	const bool bounced_here = !skip && sr_scene_tracker_consume_returning();
+	if (bounced_here)
+		return;
+
+	/* The replay scene is going on air, whether it plays a fresh capture
+	 * or a file the dock just loaded. In studio mode, keep the shot the
+	 * operator had lined up in preview from being swapped out for it. */
+	sr_scene_tracker_note_replay_launch();
+
+	if (skip)
 		return;
 
 	if (!p->autoplay || sr_playback_capture_replay(p))
@@ -860,6 +869,8 @@ static void sr_playback_deactivate(void *data)
 		p->phase = PHASE_IDLE;
 	}
 	pthread_mutex_unlock(&p->mutex);
+
+	sr_scene_tracker_end_replay_guard();
 
 	if (was_playing)
 		obs_log(LOG_INFO, "'%s': cut away mid-replay, playout stopped", obs_source_get_name(p->self));

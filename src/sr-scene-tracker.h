@@ -57,6 +57,17 @@ void sr_switch_to_scene_of_source_return(const char *source_name);
  * i.e. not from a source's activate() or video_tick(). */
 char *sr_find_scene_with_source(const char *source_name);
 
+/* Studio mode preview guard. Call note_replay_launch() when a replay scene
+ * goes on program and end_replay_guard() when it leaves: in between, OBS's
+ * "swap preview/program scenes after transitioning" would leave the replay
+ * scene (or the camera it interrupted) sitting in preview, in place of the
+ * shot the operator had lined up - one blind transition away from putting
+ * the replay back on air. Anything the operator picks in preview during the
+ * replay is honoured and becomes what gets restored. No-ops outside studio
+ * mode. Safe to call from any thread. */
+void sr_scene_tracker_note_replay_launch(void);
+void sr_scene_tracker_end_replay_guard(void);
+
 #ifdef __cplusplus
 }
 #endif

@@ -33,12 +33,20 @@ with this program. If not, see <https://www.gnu.org/licenses/>
  * other than the one we bounced to. */
 #define SR_RETURN_WINDOW_NS 500000000ULL
 
+/* How long the preview guard keeps watching after the replay leaves program.
+ * OBS performs the preview/program swap when the transition finishes, which
+ * is after the source is deactivated, so the guard has to outlive it. */
+#define SR_PREVIEW_GUARD_TAIL_NS 5000000000ULL
+
 static pthread_mutex_t g_mutex;
 static bool g_started;
 static char *g_current_scene;
 static char *g_previous_scene;
 static char *g_return_target; /* scene a bounce is on its way to, or NULL */
 static uint64_t g_return_expires;
+static char *g_preview_scene;         /* what the operator has lined up in preview */
+static bool g_preview_guard;          /* a replay is on air: keep it out of preview */
+static uint64_t g_preview_guard_ends; /* 0 = guard runs until the replay leaves program */
 
 /* call with g_mutex held */
 static void clear_return_mark(void)
@@ -48,12 +56,8 @@ static void clear_return_mark(void)
 	g_return_expires = 0;
 }
 
-static void on_frontend_event(enum obs_frontend_event event, void *data)
+static void on_program_scene_changed(void)
 {
-	UNUSED_PARAMETER(data);
-	if (event != OBS_FRONTEND_EVENT_SCENE_CHANGED)
-		return;
-
 	obs_source_t *scene = obs_frontend_get_current_scene();
 	if (!scene)
 		return;
@@ -74,6 +78,105 @@ static void on_frontend_event(enum obs_frontend_event event, void *data)
 	obs_source_release(scene);
 }
 
+/* Records the scene sitting in preview. Studio mode only (the frontend hands
+ * back NULL otherwise), and UI thread only. */
+static void note_preview_scene(void)
+{
+	obs_source_t *scene = obs_frontend_get_current_preview_scene();
+
+	pthread_mutex_lock(&g_mutex);
+	bfree(g_preview_scene);
+	g_preview_scene = scene ? bstrdup(obs_source_get_name(scene)) : NULL;
+	pthread_mutex_unlock(&g_mutex);
+
+	obs_source_release(scene);
+}
+
+/* call with g_mutex held */
+static bool preview_guard_running(void)
+{
+	if (!g_preview_guard)
+		return false;
+	if (g_preview_guard_ends && os_gettime_ns() > g_preview_guard_ends) {
+		g_preview_guard = false;
+		g_preview_guard_ends = 0;
+		return false;
+	}
+	return true;
+}
+
+static void on_preview_scene_changed(void)
+{
+	if (!obs_frontend_preview_program_mode_active())
+		return;
+
+	obs_source_t *scene = obs_frontend_get_current_preview_scene();
+	if (!scene)
+		return;
+	const char *name = obs_source_get_name(scene);
+
+	char *restore = NULL;
+
+	pthread_mutex_lock(&g_mutex);
+	/* OBS's "swap preview/program scenes after transitioning" drops the
+	 * scene leaving program into preview, and it does that inside
+	 * TransitionStopped() - before the program change reaches us - so
+	 * g_current_scene still names the scene that just left the air. While
+	 * a replay is on air, that scene is the replay itself (or the camera
+	 * it cut into), and the operator never asked for either of them to
+	 * take over the shot they had lined up. Undo it, putting back what was
+	 * in preview - which is whatever the operator last picked, since a
+	 * swap we undo never becomes g_preview_scene. */
+	const bool swapped_in = preview_guard_running() && g_current_scene && strcmp(name, g_current_scene) == 0 &&
+				g_preview_scene && strcmp(g_preview_scene, name) != 0;
+
+	if (swapped_in)
+		restore = bstrdup(g_preview_scene);
+	else {
+		bfree(g_preview_scene);
+		g_preview_scene = bstrdup(name);
+	}
+	pthread_mutex_unlock(&g_mutex);
+
+	obs_source_release(scene);
+
+	if (!restore)
+		return;
+
+	obs_source_t *target = obs_get_source_by_name(restore);
+	if (target) {
+		obs_frontend_set_current_preview_scene(target);
+		obs_source_release(target);
+	}
+	bfree(restore);
+}
+
+static void on_frontend_event(enum obs_frontend_event event, void *data)
+{
+	UNUSED_PARAMETER(data);
+
+	switch (event) {
+	case OBS_FRONTEND_EVENT_SCENE_CHANGED:
+		on_program_scene_changed();
+		break;
+	case OBS_FRONTEND_EVENT_PREVIEW_SCENE_CHANGED:
+		on_preview_scene_changed();
+		break;
+	case OBS_FRONTEND_EVENT_STUDIO_MODE_ENABLED:
+	case OBS_FRONTEND_EVENT_FINISHED_LOADING:
+		note_preview_scene();
+		break;
+	case OBS_FRONTEND_EVENT_STUDIO_MODE_DISABLED:
+		pthread_mutex_lock(&g_mutex);
+		bfree(g_preview_scene);
+		g_preview_scene = NULL;
+		pthread_mutex_unlock(&g_mutex);
+		break;
+	default:
+		break;
+	}
+}
+
 void sr_scene_tracker_start(void)
 {
 	pthread_mutex_init(&g_mutex, NULL);
@@ -89,8 +192,12 @@ void sr_scene_tracker_stop(void)
 	pthread_mutex_lock(&g_mutex);
 	bfree(g_current_scene);
 	bfree(g_previous_scene);
+	bfree(g_preview_scene);
 	g_current_scene = NULL;
 	g_previous_scene = NULL;
+	g_preview_scene = NULL;
+	g_preview_guard = false;
+	g_preview_guard_ends = 0;
 	clear_return_mark();
 	pthread_mutex_unlock(&g_mutex);
 	pthread_mutex_destroy(&g_mutex);
@@ -138,12 +245,22 @@ static void switch_scene_task(void *param)
 	char *name = param;
 	obs_source_t *scene = obs_get_source_by_name(name);
 	if (scene) {
+		/* This is a replay scene going on air, and the transition that
+		 * follows may swap preview out from under the operator before
+		 * the source's activate() ever runs - that lands a frame later,
+		 * from the video tick. Guard it here, where we are ahead of the
+		 * switch and on the UI thread. */
+		note_preview_scene();
+		sr_scene_tracker_note_replay_launch();
+
 		obs_frontend_set_current_scene(scene);
 		obs_source_release(scene);
 	}
 	bfree(name);
 }
 
+/* Puts a replay scene on program, cutting past preview the way OBS's own
+ * "switch to scene" hotkey does. */
 void sr_switch_to_scene(const char *scene_name)
 {
 	if (!scene_name || !*scene_name)
@@ -225,4 +342,20 @@ void sr_switch_to_scene_of_source_return(const char *source_name)
 	if (!source_name || !*source_name)
 		return;
 	obs_queue_task(OBS_TASK_UI, switch_to_source_scene_task, bstrdup(source_name), false);
+}
+
+void sr_scene_tracker_note_replay_launch(void)
+{
+	pthread_mutex_lock(&g_mutex);
+	g_preview_guard = true;
+	g_preview_guard_ends = 0; /* guard until the replay leaves program */
+	pthread_mutex_unlock(&g_mutex);
+}
+
+void sr_scene_tracker_end_replay_guard(void)
+{
+	pthread_mutex_lock(&g_mutex);
+	if (g_preview_guard && !g_preview_guard_ends)
+		g_preview_guard_ends = os_gettime_ns() + SR_PREVIEW_GUARD_TAIL_NS;
+	pthread_mutex_unlock(&g_mutex);
 }

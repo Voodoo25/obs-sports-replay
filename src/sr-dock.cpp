@@ -21,6 +21,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include "sr-thumb.h"
 #include "sr-capture.h"
 #include "sr-credit.h"
+#include "sr-scene-tracker.h"
 
 #include <obs-module.h>
 #include <obs-frontend-api.h>
@@ -427,6 +428,9 @@ private:
 
 		obs_source_t *scene = sceneContaining(srcName.constData());
 		if (scene) {
+			/* same as the send-to-program hotkey: keep the shot in
+			 * preview from being swapped out for the replay */
+			sr_scene_tracker_note_replay_launch();
 			obs_frontend_set_current_scene(scene);
 			obs_source_release(scene);
 		}
