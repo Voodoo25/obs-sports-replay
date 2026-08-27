@@ -66,6 +66,17 @@ static const char *sr_capture_get_name(void *unused)
 	return obs_module_text("SportsReplayCapture");
 }
 
+static const char *sr_capture_video_get_name(void *unused)
+{
+	UNUSED_PARAMETER(unused);
+	return obs_module_text("SportsReplayCaptureVideo");
+}
+
+bool sr_is_capture_id(const char *id)
+{
+	return id && (strcmp(id, SR_CAPTURE_ID) == 0 || strcmp(id, SR_CAPTURE_VIDEO_ID) == 0);
+}
+
 static void sr_capture_update(void *data, obs_data_t *settings)
 {
 	struct sr_capture *c = data;
@@ -285,4 +296,19 @@ struct obs_source_info sr_capture_info = {
 	.get_properties = sr_capture_properties,
 	.filter_video = sr_capture_filter_video,
 	.filter_audio = sr_capture_filter_audio,
+};
+
+/* Same filter without the audio path, for parent sources that have no audio
+ * track. OBS hides an async filter declaring OBS_SOURCE_AUDIO from those. */
+struct obs_source_info sr_capture_video_info = {
+	.id = SR_CAPTURE_VIDEO_ID,
+	.type = OBS_SOURCE_TYPE_FILTER,
+	.output_flags = OBS_SOURCE_ASYNC_VIDEO,
+	.get_name = sr_capture_video_get_name,
+	.create = sr_capture_create,
+	.destroy = sr_capture_destroy,
+	.update = sr_capture_update,
+	.get_defaults = sr_capture_defaults,
+	.get_properties = sr_capture_properties,
+	.filter_video = sr_capture_filter_video,
 };
