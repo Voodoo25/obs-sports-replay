@@ -27,12 +27,14 @@ OBS_DECLARE_MODULE()
 OBS_MODULE_USE_DEFAULT_LOCALE(PLUGIN_NAME, "en-US")
 
 extern struct obs_source_info sr_capture_info;
+extern struct obs_source_info sr_capture_video_info;
 extern struct obs_source_info sr_playback_info;
 
 bool obs_module_load(void)
 {
 	sr_config_init();
 	obs_register_source(&sr_capture_info);
+	obs_register_source(&sr_capture_video_info);
 	obs_register_source(&sr_playback_info);
 	obs_log(LOG_INFO, "Sports Replay loaded (version %s)", PLUGIN_VERSION);
 	return true;

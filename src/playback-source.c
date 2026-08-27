@@ -143,7 +143,7 @@ static void find_capture_filter(obs_source_t *parent, obs_source_t *child, void 
 	struct find_capture_ctx *ctx = param;
 	if (ctx->found)
 		return;
-	if (strcmp(obs_source_get_unversioned_id(child), SR_CAPTURE_ID) == 0)
+	if (sr_is_capture_id(obs_source_get_unversioned_id(child)))
 		ctx->found = child;
 }
 
@@ -1044,7 +1044,7 @@ struct enum_capture_ctx {
 static void enum_filters_for_list(obs_source_t *parent, obs_source_t *child, void *param)
 {
 	struct enum_capture_ctx *ctx = param;
-	if (strcmp(obs_source_get_unversioned_id(child), SR_CAPTURE_ID) == 0) {
+	if (sr_is_capture_id(obs_source_get_unversioned_id(child))) {
 		const char *name = obs_source_get_name(parent);
 		obs_property_list_add_string(ctx->list, name, name);
 	}

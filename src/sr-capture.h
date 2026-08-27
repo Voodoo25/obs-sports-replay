@@ -25,6 +25,11 @@ extern "C" {
 #endif
 
 #define SR_CAPTURE_ID "sports_replay_capture"
+/* Video-only variant of the capture filter. OBS only offers an async filter
+ * that declares OBS_SOURCE_AUDIO on a parent source that has an audio track,
+ * so on sources without one (V4L2 cameras, screen/window capture) this
+ * variant is the one that shows up in the filter list. */
+#define SR_CAPTURE_VIDEO_ID "sports_replay_capture_video"
 #define SR_PLAYBACK_ID "sports_replay"
 
 /* Settings key on a playback source naming the camera source it captures
@@ -36,6 +41,9 @@ extern "C" {
  * of a source whose id is SR_CAPTURE_ID). Used by the playback source to
  * take replay snapshots. */
 struct sr_buffer *sr_capture_get_buffer(void *capture_data);
+
+/* True for either capture filter id (audio+video or video-only). */
+bool sr_is_capture_id(const char *id);
 
 /* Loads a saved replay file into the given Sports Replay playback source and
  * starts playing it (with the same controls as a live replay). Used by the
