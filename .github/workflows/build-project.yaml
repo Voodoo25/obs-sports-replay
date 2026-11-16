@@ -84,9 +84,16 @@ jobs:
           ctest --test-dir build_tests --output-on-failure
 
   macos-build:
-    name: Build for macOS 🍏
+    name: Build for macOS 🍏${{ matrix.variant && format(' ({0})', matrix.variant) || '' }}
     runs-on: macos-15
     needs: check-event
+    strategy:
+      fail-fast: false
+      matrix:
+        # '' builds for OBS up to 32.1 (FFmpeg 7), obs32.2 for OBS 32.2+ (FFmpeg 8)
+        variant: ['', 'obs32.2']
+    env:
+      SR_DEPS_VARIANT: ${{ matrix.variant }}
     defaults:
       run:
         shell: zsh --no-rcs --errexit --pipefail {0}
@@ -128,9 +135,9 @@ jobs:
         id: ccache-cache
         with:
           path: ${{ github.workspace }}/.ccache
-          key: ${{ runner.os }}-ccache-${{ needs.check-event.outputs.config }}
+          key: ${{ runner.os }}-ccache${{ matrix.variant && format('-{0}', matrix.variant) || '' }}-${{ needs.check-event.outputs.config }}
           restore-keys: |
-            ${{ runner.os }}-ccache-
+            ${{ runner.os }}-ccache${{ matrix.variant && format('-{0}', matrix.variant) || '' }}-
 
       - name: Set Up Codesigning 🔑
         uses: ./.github/actions/setup-macos-codesigning
@@ -171,21 +178,21 @@ jobs:
       - name: Upload Artifacts 📡
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-macos-universal-${{ needs.check-event.outputs.commitHash }}
-          path: ${{ github.workspace }}/release/${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-macos-universal.*
+          name: ${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-macos-universal${{ matrix.variant && format('-{0}', matrix.variant) || '' }}-${{ needs.check-event.outputs.commitHash }}
+          path: ${{ github.workspace }}/release/${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-macos-universal${{ matrix.variant && format('-{0}', matrix.variant) || '' }}.*
 
       - name: Upload Debug Symbol Artifacts 🪲
         uses: actions/upload-artifact@v4
         if: ${{ needs.check-event.outputs.config == 'Release' }}
         with:
-          name: ${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-macos-universal-${{ needs.check-event.outputs.commitHash }}-dSYMs
-          path: ${{ github.workspace }}/release/${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-macos-universal-dSYMs.*
+          name: ${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-macos-universal${{ matrix.variant && format('-{0}', matrix.variant) || '' }}-${{ needs.check-event.outputs.commitHash }}-dSYMs
+          path: ${{ github.workspace }}/release/${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-macos-universal${{ matrix.variant && format('-{0}', matrix.variant) || '' }}-dSYMs.*
 
       - uses: actions/cache/save@v4
         if: github.event_name != 'pull_request' && steps.ccache-cache.outputs.cache-hit != 'true'
         with:
           path: ${{ github.workspace }}/.ccache
-          key: ${{ runner.os }}-ccache-${{ needs.check-event.outputs.config }}
+          key: ${{ runner.os }}-ccache${{ matrix.variant && format('-{0}', matrix.variant) || '' }}-${{ needs.check-event.outputs.config }}
 
   ubuntu-build:
     name: Build for Ubuntu 🐧
@@ -262,9 +269,16 @@ jobs:
           key: ${{ runner.os }}-${{ matrix.os }}-ccache-x86_64-${{ needs.check-event.outputs.config }}
 
   windows-build:
-    name: Build for Windows 🪟
+    name: Build for Windows 🪟${{ matrix.variant && format(' ({0})', matrix.variant) || '' }}
     runs-on: windows-2022
     needs: check-event
+    strategy:
+      fail-fast: false
+      matrix:
+        # '' builds for OBS up to 32.1 (FFmpeg 7), obs32.2 for OBS 32.2+ (FFmpeg 8)
+        variant: ['', 'obs32.2']
+    env:
+      SR_DEPS_VARIANT: ${{ matrix.variant }}
     defaults:
       run:
         shell: pwsh
@@ -305,5 +319,5 @@ jobs:
       - name: Upload Artifacts 📡
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-windows-x64-${{ needs.check-event.outputs.commitHash }}
-          path: ${{ github.workspace }}/release/${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-windows-x64*.*
+          name: ${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-windows-x64${{ matrix.variant && format('-{0}', matrix.variant) || '' }}-${{ needs.check-event.outputs.commitHash }}
+          path: ${{ github.workspace }}/release/${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-windows-x64${{ matrix.variant && format('-{0}', matrix.variant) || '' }}.*

@@ -45,6 +45,29 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/common")
 
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/buildspec.json" buildspec)
 
+# Dependency set to build against. FFmpeg's DLL names carry its major version,
+# and OBS 32.2 moved from FFmpeg 7 to 8, so one binary cannot load in both: the
+# default set (buildspec.json) targets OBS up to 32.1, a variant named here
+# takes its dependencies from build-aux/buildspec-<variant>.json and keeps them
+# in its own .deps-<variant> folder so the two sets never mix. CI passes the
+# variant through the environment.
+set(
+  SR_DEPS_VARIANT
+  "$ENV{SR_DEPS_VARIANT}"
+  CACHE STRING
+  "Dependency variant (empty for buildspec.json, or e.g. obs32.2)"
+)
+if(SR_DEPS_VARIANT)
+  set(SR_DEPS_FILE "${CMAKE_CURRENT_SOURCE_DIR}/build-aux/buildspec-${SR_DEPS_VARIANT}.json")
+  set(SR_DEPS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/.deps-${SR_DEPS_VARIANT}")
+  if(NOT EXISTS "${SR_DEPS_FILE}")
+    message(FATAL_ERROR "Unknown dependency variant '${SR_DEPS_VARIANT}': ${SR_DEPS_FILE} not found")
+  endif()
+else()
+  set(SR_DEPS_FILE "${CMAKE_CURRENT_SOURCE_DIR}/buildspec.json")
+  set(SR_DEPS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/.deps")
+endif()
+
 string(JSON _name GET ${buildspec} name)
 string(JSON _website GET ${buildspec} website)
 string(JSON _author GET ${buildspec} author)

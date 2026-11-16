@@ -41,7 +41,8 @@ while cutting memory use by roughly **50–100×**.
 
 ## Requirements
 
-- OBS Studio 31+ (developed and tested on 32.0.2, Windows).
+- OBS Studio 31+ on Windows or macOS (developed on 32.0.2, also tested on
+  32.2.2).
 - A GPU with a hardware H.264 encoder recommended (NVIDIA/AMD/Intel); falls
   back to x264 software encoding otherwise.
 
@@ -50,6 +51,23 @@ while cutting memory use by roughly **50–100×**.
 1. Download the installer from the [latest release](../../releases/latest).
 2. Run it (it installs into your OBS plugins folder).
 3. Restart OBS.
+
+The Windows installer works with every supported OBS version: it detects which
+build your OBS needs and installs that one.
+
+### Manual install: pick the build for your OBS version
+
+OBS Studio 32.2 moved to FFmpeg 8, and the plugin links against the FFmpeg
+that OBS ships, so each release comes in two builds. A build made for the
+wrong version simply does not load.
+
+| Your OBS Studio | Windows (zip)                          | macOS (pkg)                              |
+| --------------- | -------------------------------------- | ---------------------------------------- |
+| 31.0 – 32.1     | `sports-replay-X.Y.Z-windows-x64.zip`  | `sports-replay-X.Y.Z-macos-universal.pkg` |
+| 32.2 or newer   | `sports-replay-X.Y.Z-windows-x64-obs32.2.zip` | `sports-replay-X.Y.Z-macos-universal-obs32.2.pkg` |
+
+Not sure which one you have? On Windows, look in `C:\Program Files\obs-studio\bin\64bit`:
+`avcodec-61.dll` means the first row, `avcodec-62.dll` the second.
 
 ## How to use
 
@@ -80,7 +98,35 @@ while cutting memory use by roughly **50–100×**.
 ![Replay bin dock with thumbnails](docs/screenshot-dock.png)
 
 Assign hotkeys under *Settings → Hotkeys* (capture, play/pause, speed
-presets, reverse, play last saved replay).
+presets, reverse, play last saved replay). Each Sports Replay source has its
+own set, listed under the source's name.
+
+### Triggering hotkeys from software (obs-websocket, Stream Deck, scripts)
+
+Every Sports Replay source registers the same hotkey names
+(`SportsReplay.Capture`, `SportsReplay.SendToProgram`, ...), so
+`GetHotkeyList` shows each name once per source - just like OBS's own
+`libobs.mute`. To fire the hotkey of one particular source, pass the source
+name as `contextName` to `TriggerHotkeyByName`:
+
+```json
+{
+  "requestType": "TriggerHotkeyByName",
+  "requestData": { "hotkeyName": "SportsReplay.Capture", "contextName": "Replay Cam 1" }
+}
+```
+
+| Hotkey name                  | Action                                         |
+| ---------------------------- | ---------------------------------------------- |
+| `SportsReplay.Capture`       | Capture the last seconds and play them         |
+| `SportsReplay.CaptureOnly`   | Capture to the replay bin without playing      |
+| `SportsReplay.SendToProgram` | Send this source's replay scene to program     |
+| `SportsReplay.PlayPause`     | Play / pause                                   |
+| `SportsReplay.Restart`       | Restart the replay                             |
+| `SportsReplay.Faster` / `Slower` | Speed up / slow down                       |
+| `SportsReplay.NormalSpeed` / `HalfSpeed` / `QuarterSpeed` | Speed presets |
+| `SportsReplay.ReverseToggle` | Toggle reverse playback                        |
+| `SportsReplay.PlayLast`      | Play the last saved replay                     |
 
 ## Questions, ideas & feedback
 
@@ -105,6 +151,20 @@ build system.
 ```sh
 cmake --preset windows-x64
 cmake --build --preset windows-x64
+```
+
+That builds for OBS up to 32.1 (FFmpeg 7). For OBS 32.2 and newer
+(FFmpeg 8), build the `obs32.2` dependency variant in its own folder:
+
+```sh
+cmake --preset windows-x64 -B build_x64_obs32.2 -DSR_DEPS_VARIANT=obs32.2
+cmake --build build_x64_obs32.2 --config RelWithDebInfo
+```
+
+The safeguard unit tests build on their own, with no OBS dependency:
+
+```sh
+cmake -S tests -B build_tests && cmake --build build_tests && ctest --test-dir build_tests
 ```
 
 ## Support development
