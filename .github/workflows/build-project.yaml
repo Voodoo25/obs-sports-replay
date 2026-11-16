@@ -85,13 +85,20 @@ jobs:
 
   macos-build:
     name: Build for macOS 🍏${{ matrix.variant && format(' ({0})', matrix.variant) || '' }}
-    runs-on: macos-15
+    runs-on: ${{ matrix.runner }}
     needs: check-event
     strategy:
       fail-fast: false
       matrix:
-        # '' builds for OBS up to 32.1 (FFmpeg 7), obs32.2 for OBS 32.2+ (FFmpeg 8)
-        variant: ['', 'obs32.2']
+        # '' builds for OBS up to 32.1 (FFmpeg 7), obs32.2 for OBS 32.2+
+        # (FFmpeg 8), whose libobs needs the macOS 26.5 SDK
+        include:
+          - variant: ''
+            runner: macos-15
+            xcode: Xcode_16.1.0
+          - variant: obs32.2
+            runner: macos-26
+            xcode: Xcode_26.5
     env:
       SR_DEPS_VARIANT: ${{ matrix.variant }}
     defaults:
@@ -109,8 +116,8 @@ jobs:
           : Set Up Environment 🔧
           if (( ${+RUNNER_DEBUG} )) setopt XTRACE
 
-          print '::group::Enable Xcode 16.1'
-          sudo xcode-select --switch /Applications/Xcode_16.1.0.app/Contents/Developer
+          print '::group::Enable ${{ matrix.xcode }}'
+          sudo xcode-select --switch /Applications/${{ matrix.xcode }}.app/Contents/Developer
           print '::endgroup::'
 
           print '::group::Clean Homebrew Environment'
