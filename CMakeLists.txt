@@ -36,6 +36,11 @@ if(ENABLE_QT)
     ${CMAKE_PROJECT_NAME}
     PROPERTIES AUTOMOC ON AUTOUIC ON AUTORCC ON
   )
+  if(APPLE)
+    # Xcode 26 exports several *_DEPLOYMENT_TARGET variables to script phases, which breaks the clang++ call moc
+    # makes to learn the compiler's predefined macros. Nothing here depends on them.
+    set_target_properties(${CMAKE_PROJECT_NAME} PROPERTIES AUTOMOC_COMPILER_PREDEFINES OFF)
+  endif()
 endif()
 
 target_sources(
