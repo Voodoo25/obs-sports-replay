@@ -117,7 +117,7 @@ fetch x264 https://github.com/mirror/x264.git "$X264_COMMIT"
 (
 	cd "$WORK/x264"
 	rm -rf build && mkdir build && cd build
-	CFLAGS="$EXTRA_CFLAGS" LDFLAGS="$EXTRA_LDFLAGS" ../configure "${X264_HOST[@]}" \
+	CFLAGS="$EXTRA_CFLAGS" LDFLAGS="$EXTRA_LDFLAGS" ../configure ${X264_HOST[@]+"${X264_HOST[@]}"} \
 		--prefix="$PREFIX" --enable-static --enable-pic --disable-cli \
 		--disable-lsmash --disable-avs --disable-gpac --disable-ffms --disable-swscale \
 		--disable-interlaced --bit-depth=8 --chroma-format=420
@@ -168,7 +168,7 @@ fetch ffmpeg https://github.com/FFmpeg/FFmpeg.git "$FFMPEG_COMMIT"
 	rm -rf build && mkdir build && cd build
 	../configure \
 		--prefix="$PREFIX" \
-		"${FFMPEG_TOOLCHAIN[@]}" \
+		${FFMPEG_TOOLCHAIN[@]+"${FFMPEG_TOOLCHAIN[@]}"} \
 		--pkg-config="$PKG_CONFIG" \
 		--extra-cflags="$EXTRA_CFLAGS -I$PREFIX_NATIVE/include" \
 		--extra-ldflags="$EXTRA_LDFLAGS" \
@@ -180,7 +180,7 @@ fetch ffmpeg https://github.com/FFmpeg/FFmpeg.git "$FFMPEG_COMMIT"
 		--disable-avdevice --disable-avfilter --disable-swresample \
 		--enable-avcodec --enable-avformat --enable-avutil --enable-swscale \
 		--enable-libx264 --enable-encoder=libx264 \
-		"${HW_ENCODERS[@]}" \
+		${HW_ENCODERS[@]+"${HW_ENCODERS[@]}"} \
 		--enable-decoder=h264,hevc,vp8,vp9,mpeg4,mpeg2video,mpeg1video,h263,flv,prores,mjpeg \
 		--enable-parser=h264,hevc,vp8,vp9,av1,mpeg4video,mpegvideo,h263,mjpeg \
 		--enable-demuxer=mov,matroska,avi,flv,h264 \
