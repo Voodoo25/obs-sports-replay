@@ -9,9 +9,9 @@ function(_check_dependencies_macos)
   set(arch universal)
   set(platform macos)
 
-  file(READ "${SR_DEPS_FILE}" buildspec)
+  file(READ "${CMAKE_CURRENT_SOURCE_DIR}/buildspec.json" buildspec)
 
-  set(dependencies_dir "${SR_DEPS_DIR}")
+  set(dependencies_dir "${CMAKE_CURRENT_SOURCE_DIR}/.deps")
   set(prebuilt_filename "macos-deps-VERSION-ARCH_REVISION.tar.xz")
   set(prebuilt_destination "obs-deps-VERSION-ARCH")
   set(qt6_filename "macos-deps-qt6-VERSION-ARCH-REVISION.tar.xz")

@@ -48,9 +48,6 @@ function Package {
     $ProductVersion = $BuildSpec.version
 
     $OutputName = "${ProductName}-${ProductVersion}-windows-${Target}"
-    if ( $env:SR_DEPS_VARIANT ) {
-        $OutputName += "-$env:SR_DEPS_VARIANT"
-    }
 
     $RemoveArgs = @{
         ErrorAction = 'SilentlyContinue'

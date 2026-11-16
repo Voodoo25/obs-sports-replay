@@ -41,33 +41,17 @@ while cutting memory use by roughly **50–100×**.
 
 ## Requirements
 
-- OBS Studio 31+ on Windows or macOS (developed on 32.0.2, also tested on
-  32.2.2).
-- A GPU with a hardware H.264 encoder recommended (NVIDIA/AMD/Intel); falls
-  back to x264 software encoding otherwise.
+- OBS Studio 31 or newer on Windows, macOS or Linux (developed on 32.0.2,
+  also tested on 32.2.2). One build covers every version: the plugin carries
+  its own copy of FFmpeg, so it does not depend on the one OBS ships.
+- A GPU with a hardware H.264 encoder recommended (NVIDIA/AMD); falls back to
+  x264 software encoding otherwise.
 
 ## Installation
 
 1. Download the installer from the [latest release](../../releases/latest).
 2. Run it (it installs into your OBS plugins folder).
 3. Restart OBS.
-
-The Windows installer works with every supported OBS version: it detects which
-build your OBS needs and installs that one.
-
-### Manual install: pick the build for your OBS version
-
-OBS Studio 32.2 moved to FFmpeg 8, and the plugin links against the FFmpeg
-that OBS ships, so each release comes in two builds. A build made for the
-wrong version simply does not load.
-
-| Your OBS Studio | Windows (zip)                          | macOS (pkg)                              |
-| --------------- | -------------------------------------- | ---------------------------------------- |
-| 31.0 – 32.1     | `sports-replay-X.Y.Z-windows-x64.zip`  | `sports-replay-X.Y.Z-macos-universal.pkg` |
-| 32.2 or newer   | `sports-replay-X.Y.Z-windows-x64-obs32.2.zip` | `sports-replay-X.Y.Z-macos-universal-obs32.2.pkg` |
-
-Not sure which one you have? On Windows, look in `C:\Program Files\obs-studio\bin\64bit`:
-`avcodec-61.dll` means the first row, `avcodec-62.dll` the second.
 
 ## How to use
 
@@ -148,18 +132,21 @@ For confirmed bugs, open an [issue](../../issues).
 Uses the standard [OBS plugin template](https://github.com/obsproject/obs-plugintemplate)
 build system.
 
+The plugin links a private, trimmed FFmpeg statically, so it does not depend
+on the FFmpeg OBS ships (whose library names change with every FFmpeg major,
+as in OBS 32.2). Build it once with `build-aux/ffmpeg/build.sh` (same
+versions as OBS's own dependencies), then point CMake at it:
+
 ```sh
-cmake --preset windows-x64
+# Windows (PowerShell; needs Visual Studio and MSYS2 with make and nasm):
+build-aux/ffmpeg/build-windows.ps1 -Prefix C:/sr-ffmpeg/windows-x64
+cmake --preset windows-x64 -DSR_FFMPEG_DIR=C:/sr-ffmpeg/windows-x64
 cmake --build --preset windows-x64
 ```
 
-That builds for OBS up to 32.1 (FFmpeg 7). For OBS 32.2 and newer
-(FFmpeg 8), build the `obs32.2` dependency variant in its own folder:
-
-```sh
-cmake --preset windows-x64 -B build_x64_obs32.2 -DSR_DEPS_VARIANT=obs32.2
-cmake --build build_x64_obs32.2 --config RelWithDebInfo
-```
+The default location is `.deps-ffmpeg/<platform>` in the source tree. The
+FFmpeg makefiles do not handle spaces in paths, hence a custom prefix when the
+source tree has any.
 
 The safeguard unit tests build on their own, with no OBS dependency:
 

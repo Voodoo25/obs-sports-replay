@@ -98,7 +98,6 @@ package() {
     "$(jq -r '. | {name, version} | join(" ")' ${buildspec_file})"
 
   local output_name="${product_name}-${product_version}-${host_os}-universal"
-  if [[ -n ${SR_DEPS_VARIANT:-} ]] output_name+="-${SR_DEPS_VARIANT}"
 
   if [[ ! -d ${project_root}/release/${config}/${product_name}.plugin ]] {
     log_error 'No release artifact found. Run the build script or the CMake install procedure first.'

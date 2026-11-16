@@ -9,7 +9,7 @@ function(_check_dependencies_windows)
   set(arch ${CMAKE_VS_PLATFORM_NAME})
   set(platform windows-${arch})
 
-  set(dependencies_dir "${SR_DEPS_DIR}")
+  set(dependencies_dir "${CMAKE_CURRENT_SOURCE_DIR}/.deps")
   set(prebuilt_filename "windows-deps-VERSION-ARCH-REVISION.zip")
   set(prebuilt_destination "obs-deps-VERSION-ARCH")
   set(qt6_filename "windows-deps-qt6-VERSION-ARCH-REVISION.zip")

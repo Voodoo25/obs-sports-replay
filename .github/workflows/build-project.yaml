@@ -84,23 +84,9 @@ jobs:
           ctest --test-dir build_tests --output-on-failure
 
   macos-build:
-    name: Build for macOS 🍏${{ matrix.variant && format(' ({0})', matrix.variant) || '' }}
-    runs-on: ${{ matrix.runner }}
+    name: Build for macOS 🍏
+    runs-on: macos-15
     needs: check-event
-    strategy:
-      fail-fast: false
-      matrix:
-        # '' builds for OBS up to 32.1 (FFmpeg 7), obs32.2 for OBS 32.2+
-        # (FFmpeg 8), whose libobs needs the macOS 26.5 SDK
-        include:
-          - variant: ''
-            runner: macos-15
-            xcode: Xcode_16.1.0
-          - variant: obs32.2
-            runner: macos-26
-            xcode: Xcode_26.5
-    env:
-      SR_DEPS_VARIANT: ${{ matrix.variant }}
     defaults:
       run:
         shell: zsh --no-rcs --errexit --pipefail {0}
@@ -116,8 +102,8 @@ jobs:
           : Set Up Environment 🔧
           if (( ${+RUNNER_DEBUG} )) setopt XTRACE
 
-          print '::group::Enable ${{ matrix.xcode }}'
-          sudo xcode-select --switch /Applications/${{ matrix.xcode }}.app/Contents/Developer
+          print '::group::Enable Xcode 16.1'
+          sudo xcode-select --switch /Applications/Xcode_16.1.0.app/Contents/Developer
           print '::endgroup::'
 
           print '::group::Clean Homebrew Environment'
@@ -142,9 +128,9 @@ jobs:
         id: ccache-cache
         with:
           path: ${{ github.workspace }}/.ccache
-          key: ${{ runner.os }}-ccache${{ matrix.variant && format('-{0}', matrix.variant) || '' }}-${{ needs.check-event.outputs.config }}
+          key: ${{ runner.os }}-ccache-${{ needs.check-event.outputs.config }}
           restore-keys: |
-            ${{ runner.os }}-ccache${{ matrix.variant && format('-{0}', matrix.variant) || '' }}-
+            ${{ runner.os }}-ccache-
 
       - name: Set Up Codesigning 🔑
         uses: ./.github/actions/setup-macos-codesigning
@@ -159,6 +145,21 @@ jobs:
           provisioningProfile: ${{ secrets.MACOS_SIGNING_PROVISIONING_PROFILE }}
           notarizationUser: ${{ secrets.MACOS_NOTARIZATION_USERNAME }}
           notarizationPassword: ${{ secrets.MACOS_NOTARIZATION_PASSWORD }}
+
+      - name: Restore FFmpeg 🎞️
+        id: ffmpeg-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.deps-ffmpeg/macos-universal
+          key: ffmpeg-macos-universal-${{ hashFiles('build-aux/ffmpeg/**') }}
+
+      - name: Build FFmpeg 🎞️
+        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        run: |
+          : Build FFmpeg 🎞️
+          brew install --quiet nasm
+          build-aux/ffmpeg/build-macos.sh .deps-ffmpeg/macos-universal
+          rm -rf .deps-ffmpeg/macos-universal/.arch-*
 
       - name: Build Plugin 🧱
         uses: ./.github/actions/build-plugin
@@ -185,21 +186,21 @@ jobs:
       - name: Upload Artifacts 📡
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-macos-universal${{ matrix.variant && format('-{0}', matrix.variant) || '' }}-${{ needs.check-event.outputs.commitHash }}
-          path: ${{ github.workspace }}/release/${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-macos-universal${{ matrix.variant && format('-{0}', matrix.variant) || '' }}.*
+          name: ${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-macos-universal-${{ needs.check-event.outputs.commitHash }}
+          path: ${{ github.workspace }}/release/${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-macos-universal.*
 
       - name: Upload Debug Symbol Artifacts 🪲
         uses: actions/upload-artifact@v4
         if: ${{ needs.check-event.outputs.config == 'Release' }}
         with:
-          name: ${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-macos-universal${{ matrix.variant && format('-{0}', matrix.variant) || '' }}-${{ needs.check-event.outputs.commitHash }}-dSYMs
-          path: ${{ github.workspace }}/release/${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-macos-universal${{ matrix.variant && format('-{0}', matrix.variant) || '' }}-dSYMs.*
+          name: ${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-macos-universal-${{ needs.check-event.outputs.commitHash }}-dSYMs
+          path: ${{ github.workspace }}/release/${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-macos-universal-dSYMs.*
 
       - uses: actions/cache/save@v4
         if: github.event_name != 'pull_request' && steps.ccache-cache.outputs.cache-hit != 'true'
         with:
           path: ${{ github.workspace }}/.ccache
-          key: ${{ runner.os }}-ccache${{ matrix.variant && format('-{0}', matrix.variant) || '' }}-${{ needs.check-event.outputs.config }}
+          key: ${{ runner.os }}-ccache-${{ needs.check-event.outputs.config }}
 
   ubuntu-build:
     name: Build for Ubuntu 🐧
@@ -236,6 +237,21 @@ jobs:
           key: ${{ runner.os }}-${{ matrix.os }}-ccache-x86_64-${{ needs.check-event.outputs.config }}
           restore-keys: |
             ${{ runner.os }}-${{ matrix.os }}-ccache-x86_64-
+
+      - name: Restore FFmpeg 🎞️
+        id: ffmpeg-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.deps-ffmpeg/linux-x86_64
+          key: ffmpeg-${{ matrix.os }}-x86_64-${{ hashFiles('build-aux/ffmpeg/**') }}
+
+      - name: Build FFmpeg 🎞️
+        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        run: |
+          : Build FFmpeg 🎞️
+          sudo apt-get install -y -qq nasm
+          build-aux/ffmpeg/build.sh .deps-ffmpeg/linux-x86_64
+          rm -rf .deps-ffmpeg/linux-x86_64/.work
 
       - name: Build Plugin 🧱
         uses: ./.github/actions/build-plugin
@@ -276,16 +292,9 @@ jobs:
           key: ${{ runner.os }}-${{ matrix.os }}-ccache-x86_64-${{ needs.check-event.outputs.config }}
 
   windows-build:
-    name: Build for Windows 🪟${{ matrix.variant && format(' ({0})', matrix.variant) || '' }}
+    name: Build for Windows 🪟
     runs-on: windows-2022
     needs: check-event
-    strategy:
-      fail-fast: false
-      matrix:
-        # '' builds for OBS up to 32.1 (FFmpeg 7), obs32.2 for OBS 32.2+ (FFmpeg 8)
-        variant: ['', 'obs32.2']
-    env:
-      SR_DEPS_VARIANT: ${{ matrix.variant }}
     defaults:
       run:
         shell: pwsh
@@ -310,6 +319,21 @@ jobs:
           "pluginName=${ProductName}" >> $env:GITHUB_OUTPUT
           "pluginVersion=${ProductVersion}" >> $env:GITHUB_OUTPUT
 
+      - name: Restore FFmpeg 🎞️
+        id: ffmpeg-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.deps-ffmpeg/windows-x64
+          key: ffmpeg-windows-x64-${{ hashFiles('build-aux/ffmpeg/**') }}
+
+      - name: Build FFmpeg 🎞️
+        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        run: |
+          # Build FFmpeg 🎞️
+          C:/msys64/usr/bin/pacman.exe -S --noconfirm --needed --noprogressbar make nasm diffutils
+          ./build-aux/ffmpeg/build-windows.ps1 -Prefix "${{ github.workspace }}/.deps-ffmpeg/windows-x64"
+          Remove-Item -Recurse -Force "${{ github.workspace }}/.deps-ffmpeg/windows-x64/.work"
+
       - name: Build Plugin 🧱
         uses: ./.github/actions/build-plugin
         with:
@@ -326,5 +350,5 @@ jobs:
       - name: Upload Artifacts 📡
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-windows-x64${{ matrix.variant && format('-{0}', matrix.variant) || '' }}-${{ needs.check-event.outputs.commitHash }}
-          path: ${{ github.workspace }}/release/${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-windows-x64${{ matrix.variant && format('-{0}', matrix.variant) || '' }}.*
+          name: ${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-windows-x64-${{ needs.check-event.outputs.commitHash }}
+          path: ${{ github.workspace }}/release/${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-windows-x64*.*

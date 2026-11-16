@@ -34,17 +34,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # one build per FFmpeg major: OBS up to 32.1 ships FFmpeg 7, OBS
-          # 32.2+ FFmpeg 8; the installer picks the one the OBS it finds needs
           gh release download "${{ steps.tag.outputs.value }}" \
             --repo "${{ github.repository }}" \
-            --pattern '*windows-x64.zip' --dir installer/ffmpeg7
-          gh release download "${{ steps.tag.outputs.value }}" \
-            --repo "${{ github.repository }}" \
-            --pattern '*windows-x64-obs32.2.zip' --dir installer/ffmpeg8
-          (cd installer/ffmpeg7 && 7z x -y *.zip)
-          (cd installer/ffmpeg8 && 7z x -y *.zip)
-          cp LICENSE installer/LICENSE.txt
+            --pattern '*windows-x64.zip' --dir installer
+          cd installer
+          7z x -y *windows-x64.zip
+          cp ../LICENSE LICENSE.txt
 
       - name: Install Inno Setup 🛠️
         run: choco install innosetup --yes --no-progress
