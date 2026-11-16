@@ -18,10 +18,7 @@ target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE OBS::libobs)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 find_package(FFmpeg REQUIRED)
-target_link_libraries(
-  ${CMAKE_PROJECT_NAME}
-  PRIVATE FFmpeg::avcodec FFmpeg::avutil FFmpeg::swscale FFmpeg::avformat
-)
+target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE FFmpeg::avcodec FFmpeg::avutil FFmpeg::swscale FFmpeg::avformat)
 
 if(ENABLE_FRONTEND_API)
   find_package(obs-frontend-api REQUIRED)
