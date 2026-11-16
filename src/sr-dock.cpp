@@ -304,7 +304,13 @@ private:
 	{
 		if (!watcher->directories().isEmpty())
 			watcher->removePaths(watcher->directories());
-		if (!currentFolder.isEmpty() && QDir(currentFolder).exists())
+		if (currentFolder.isEmpty())
+			return;
+		/* a folder that does not exist yet cannot be watched, and the
+		 * replays saved into it later would only show after a restart */
+		if (!QDir(currentFolder).exists())
+			QDir().mkpath(currentFolder);
+		if (QDir(currentFolder).exists())
 			watcher->addPath(currentFolder);
 	}
 

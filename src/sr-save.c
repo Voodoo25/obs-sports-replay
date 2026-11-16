@@ -19,10 +19,33 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include "sr-save.h"
 
 #include <plugin-support.h>
+#include <util/dstr.h>
+#include <util/platform.h>
 #include <libavformat/avformat.h>
 
 #define NS_TB \
 	(AVRational) { 1, 1000000000 }
+
+/* Creates the folder path is to be written in, with any missing parents. */
+static bool ensure_parent_dir(const char *path)
+{
+	struct dstr dir = {0};
+	dstr_copy(&dir, path);
+	dstr_replace(&dir, "\\", "/");
+
+	char *slash = strrchr(dir.array, '/');
+	bool ok = true;
+	if (slash && slash != dir.array) {
+		*slash = 0;
+		if (os_mkdirs(dir.array) == MKDIR_ERROR) {
+			obs_log(LOG_WARNING, "sr_save: could not create the save folder '%s'", dir.array);
+			ok = false;
+		}
+	}
+
+	dstr_free(&dir);
+	return ok;
+}
 
 bool sr_save_replay(const struct sr_replay *r, const char *path)
 {
@@ -60,6 +83,12 @@ bool sr_save_replay(const struct sr_replay *r, const char *path)
 	st->time_base = NS_TB;
 
 	if (!(oc->oformat->flags & AVFMT_NOFILE)) {
+		/* the save folder may not exist yet (a fresh default, a folder
+		 * typed in or removed since): create it rather than fail */
+		if (!ensure_parent_dir(path)) {
+			avformat_free_context(oc);
+			return false;
+		}
 		if (avio_open(&oc->pb, path, AVIO_FLAG_WRITE) < 0) {
 			obs_log(LOG_WARNING, "sr_save: could not open '%s' for writing", path);
 			avformat_free_context(oc);

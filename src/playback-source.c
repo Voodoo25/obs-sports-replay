@@ -284,7 +284,15 @@ static bool sr_playback_capture_replay_ex(struct sr_playback *p, bool play)
 		dstr_replace(&path, "\\", "/");
 		if (path.len && dstr_end(&path) != '/')
 			dstr_cat_ch(&path, '/');
+		/* the camera's name becomes part of the file name: characters
+		 * no file system accepts would make the save fail */
+		const size_t name_start = path.len;
 		dstr_cat(&path, p->capture_source_name);
+		for (size_t i = name_start; i < path.len; i++) {
+			const unsigned char ch = (unsigned char)path.array[i];
+			if (ch < 32 || strchr("<>:\"/\\|?*", ch))
+				path.array[i] = '_';
+		}
 		dstr_cat_ch(&path, '_');
 		dstr_cat(&path, stamp);
 		dstr_cat(&path, ".mp4");
