@@ -25,12 +25,15 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 
 #include <libavcodec/avcodec.h>
 
+#include "sr-guard.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/* One encoded video frame kept in the ring buffer. Because every frame is
- * encoded as an intra frame, any packet can be decoded on its own. */
+/* One encoded video frame kept in the ring buffer. Unless the stream is
+ * all-intra, a packet decodes only together with the keyframe opening its
+ * GOP. */
 struct sr_packet {
 	AVPacket *pkt;
 	uint64_t ts; /* OBS timestamp in nanoseconds */
@@ -50,6 +53,7 @@ struct sr_buffer {
 	struct deque video; /* struct sr_packet */
 	struct deque audio; /* struct sr_audio_chunk */
 	uint64_t duration_ns;
+	uint64_t video_bytes; /* payload of the packets in video */
 
 	/* video stream parameters required to decode the packets later */
 	enum AVCodecID codec_id;
@@ -85,8 +89,14 @@ void sr_buffer_clear(struct sr_buffer *b);
 /* Stores a copy of the codec header (SPS/PPS). */
 void sr_buffer_set_extradata(struct sr_buffer *b, const uint8_t *data, int size);
 
-/* Takes ownership of pkt. Evicts old packets past duration_ns. */
-void sr_buffer_push_video(struct sr_buffer *b, AVPacket *pkt, uint64_t ts);
+/* Takes ownership of pkt. Evicts packets past duration_ns, and beyond that
+ * enforces the safeguards in sr-guard.h: a cap on the time span held and on
+ * the buffer's share of the global memory budget. The result says whether a
+ * safeguard had to cut in; with drop_all set the buffer was emptied and the
+ * caller must restart its encoder so the next packet is a keyframe. A
+ * non-keyframe pushed into an empty buffer is discarded (it could never be
+ * decoded). */
+struct sr_guard_eviction sr_buffer_push_video(struct sr_buffer *b, AVPacket *pkt, uint64_t ts);
 void sr_buffer_push_audio(struct sr_buffer *b, const struct obs_audio_data *audio, uint32_t channels);
 
 /* Copies the current buffer contents into out (packets are ref-counted
@@ -95,8 +105,15 @@ bool sr_buffer_snapshot(struct sr_buffer *b, struct sr_replay *out);
 
 void sr_replay_free(struct sr_replay *r);
 
-/* Approximate memory used by stored packets, for the stats log. */
+/* Memory used by stored packets, for the stats log. */
 size_t sr_buffer_video_bytes(struct sr_buffer *b);
+
+/* Time between the oldest and newest stored packet. */
+uint64_t sr_buffer_video_span_ns(struct sr_buffer *b);
+
+/* Memory used by all replay buffers together, and the budget they share. */
+uint64_t sr_buffers_total_bytes(void);
+uint64_t sr_buffers_budget(void);
 
 #ifdef __cplusplus
 }

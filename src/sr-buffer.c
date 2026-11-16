@@ -18,10 +18,67 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 
 #include "sr-buffer.h"
 
+#include <util/platform.h>
+
+/* Bookkeeping shared by every replay buffer, so that together they stay
+ * within a memory budget sized to the machine. Lock order: a buffer's mutex,
+ * then this one. */
+static pthread_mutex_t global_mutex = PTHREAD_MUTEX_INITIALIZER;
+static uint64_t global_bytes;
+static size_t global_buffers;
+static uint64_t global_budget;
+
+static void global_add_bytes(uint64_t bytes)
+{
+	pthread_mutex_lock(&global_mutex);
+	global_bytes += bytes;
+	pthread_mutex_unlock(&global_mutex);
+}
+
+static void global_sub_bytes(uint64_t bytes)
+{
+	pthread_mutex_lock(&global_mutex);
+	global_bytes = global_bytes > bytes ? global_bytes - bytes : 0;
+	pthread_mutex_unlock(&global_mutex);
+}
+
+uint64_t sr_buffers_total_bytes(void)
+{
+	pthread_mutex_lock(&global_mutex);
+	const uint64_t bytes = global_bytes;
+	pthread_mutex_unlock(&global_mutex);
+	return bytes;
+}
+
+uint64_t sr_buffers_budget(void)
+{
+	pthread_mutex_lock(&global_mutex);
+	if (!global_budget)
+		global_budget = sr_guard_memory_budget(os_get_sys_total_size());
+	const uint64_t budget = global_budget;
+	pthread_mutex_unlock(&global_mutex);
+	return budget;
+}
+
+/* Byte limit for one buffer right now: unlimited while all buffers together
+ * fit the budget, its fair share once they do not. */
+static uint64_t current_buffer_limit(void)
+{
+	const uint64_t budget = sr_buffers_budget();
+	pthread_mutex_lock(&global_mutex);
+	const uint64_t limit = sr_guard_buffer_limit(global_bytes, budget, global_buffers);
+	pthread_mutex_unlock(&global_mutex);
+	return limit;
+}
+
 void sr_buffer_init(struct sr_buffer *b)
 {
 	memset(b, 0, sizeof(*b));
 	pthread_mutex_init(&b->mutex, NULL);
+
+	pthread_mutex_lock(&global_mutex);
+	global_buffers++;
+	pthread_mutex_unlock(&global_mutex);
 }
 
 static void free_video_packet(struct sr_packet *p)
@@ -37,14 +94,24 @@ static void free_audio_chunk(struct sr_audio_chunk *c)
 	}
 }
 
+/* Caller holds b->mutex. */
+static void drop_video_front(struct sr_buffer *b, size_t count)
+{
+	uint64_t freed = 0;
+	for (size_t i = 0; i < count && b->video.size; i++) {
+		struct sr_packet p;
+		deque_pop_front(&b->video, &p, sizeof(p));
+		freed += (uint64_t)p.pkt->size;
+		free_video_packet(&p);
+	}
+	b->video_bytes = b->video_bytes > freed ? b->video_bytes - freed : 0;
+	global_sub_bytes(freed);
+}
+
 void sr_buffer_clear(struct sr_buffer *b)
 {
 	pthread_mutex_lock(&b->mutex);
-	while (b->video.size) {
-		struct sr_packet p;
-		deque_pop_front(&b->video, &p, sizeof(p));
-		free_video_packet(&p);
-	}
+	drop_video_front(b, SIZE_MAX);
 	while (b->audio.size) {
 		struct sr_audio_chunk c;
 		deque_pop_front(&b->audio, &c, sizeof(c));
@@ -56,6 +123,12 @@ void sr_buffer_clear(struct sr_buffer *b)
 void sr_buffer_free(struct sr_buffer *b)
 {
 	sr_buffer_clear(b);
+
+	pthread_mutex_lock(&global_mutex);
+	if (global_buffers)
+		global_buffers--;
+	pthread_mutex_unlock(&global_mutex);
+
 	deque_free(&b->video);
 	deque_free(&b->audio);
 	bfree(b->extradata);
@@ -86,41 +159,41 @@ static bool is_keyframe(const struct sr_packet *p)
 	return (p->pkt->flags & AV_PKT_FLAG_KEY) != 0;
 }
 
-/* Drops expired frames from the front. Unless the stream is all-intra a
- * packet is only decodable together with the keyframe that opens its GOP,
- * so whole GOPs are dropped at once and only once every frame in them has
- * expired - the buffer therefore holds up to one extra GOP. */
-static void evict_expired_video(struct sr_buffer *b, uint64_t now)
+static void guard_pkt_at(void *ctx, size_t index, struct sr_guard_pkt *out)
 {
-	const size_t count = b->video.size / sizeof(struct sr_packet);
-	size_t next_gop = 0;
-
-	for (size_t i = 1; i < count; i++) {
-		if (!is_keyframe(video_at(b, i)))
-			continue;
-		/* the GOP ending right before this keyframe is only expendable
-		 * once its last frame has fallen out of the window */
-		const struct sr_packet *last = video_at(b, i - 1);
-		if (now <= last->ts || now - last->ts <= b->duration_ns)
-			break;
-		next_gop = i;
-	}
-
-	for (size_t i = 0; i < next_gop; i++) {
-		struct sr_packet front;
-		deque_pop_front(&b->video, &front, sizeof(front));
-		free_video_packet(&front);
-	}
+	const struct sr_packet *p = video_at(ctx, index);
+	out->ts = p->ts;
+	out->size = (uint64_t)p->pkt->size;
+	out->key = is_keyframe(p);
 }
 
-void sr_buffer_push_video(struct sr_buffer *b, AVPacket *pkt, uint64_t ts)
+struct sr_guard_eviction sr_buffer_push_video(struct sr_buffer *b, AVPacket *pkt, uint64_t ts)
 {
+	struct sr_guard_eviction ev = {0};
 	struct sr_packet entry = {.pkt = pkt, .ts = ts};
+	const uint64_t limit = current_buffer_limit();
 
 	pthread_mutex_lock(&b->mutex);
+
+	/* a buffer must open with a keyframe, or nothing in it decodes */
+	if (!b->video.size && !is_keyframe(&entry)) {
+		pthread_mutex_unlock(&b->mutex);
+		free_video_packet(&entry);
+		return ev;
+	}
+
 	deque_push_back(&b->video, &entry, sizeof(entry));
-	evict_expired_video(b, ts);
+	b->video_bytes += (uint64_t)pkt->size;
+	global_add_bytes((uint64_t)pkt->size);
+
+	const size_t count = b->video.size / sizeof(struct sr_packet);
+	ev = sr_guard_plan_eviction(guard_pkt_at, b, count, ts, b->duration_ns, sr_guard_max_span_ns(b->duration_ns),
+				    b->video_bytes, limit);
+	if (ev.drop)
+		drop_video_front(b, ev.drop);
+
 	pthread_mutex_unlock(&b->mutex);
+	return ev;
 }
 
 void sr_buffer_push_audio(struct sr_buffer *b, const struct obs_audio_data *audio, uint32_t channels)
@@ -237,13 +310,22 @@ void sr_replay_free(struct sr_replay *r)
 
 size_t sr_buffer_video_bytes(struct sr_buffer *b)
 {
-	size_t total = 0;
+	pthread_mutex_lock(&b->mutex);
+	const size_t bytes = (size_t)b->video_bytes;
+	pthread_mutex_unlock(&b->mutex);
+	return bytes;
+}
+
+uint64_t sr_buffer_video_span_ns(struct sr_buffer *b)
+{
+	uint64_t span = 0;
 	pthread_mutex_lock(&b->mutex);
 	const size_t count = b->video.size / sizeof(struct sr_packet);
-	for (size_t i = 0; i < count; i++) {
-		struct sr_packet *p = deque_data(&b->video, i * sizeof(struct sr_packet));
-		total += (size_t)p->pkt->size;
+	if (count > 1) {
+		const uint64_t first = video_at(b, 0)->ts;
+		const uint64_t last = video_at(b, count - 1)->ts;
+		span = last > first ? last - first : 0;
 	}
 	pthread_mutex_unlock(&b->mutex);
-	return total;
+	return span;
 }

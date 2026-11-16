@@ -71,6 +71,18 @@ jobs:
             echo "pluginName=${plugin_name}" >> $GITHUB_OUTPUT
           fi
 
+  unit-tests:
+    name: Unit Tests 🧪
+    runs-on: ubuntu-24.04
+    needs: check-event
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and Run Safeguard Tests 🧪
+        run: |
+          cmake -S tests -B build_tests -DCMAKE_BUILD_TYPE=Release
+          cmake --build build_tests
+          ctest --test-dir build_tests --output-on-failure
+
   macos-build:
     name: Build for macOS 🍏
     runs-on: macos-15

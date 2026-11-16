@@ -33,7 +33,15 @@ struct sr_encoder {
 	uint32_t src_height;
 	int64_t next_pts;
 	bool unsupported_format_logged;
+	enum sr_encoder_backend backend;
+
+	/* OBS timestamp of each frame in flight, indexed by pts, so a packet
+	 * the encoder returns late still carries its own frame's time */
+	uint64_t pts_ts[128];
+	uint64_t last_ts;
 };
+
+#define PTS_TS_SLOTS 128u
 
 struct sr_decoder {
 	AVCodecContext *ctx;
@@ -118,7 +126,10 @@ static bool open_encoder(struct sr_encoder *enc, const char *name, uint32_t widt
 		av_opt_set(ctx->priv_data, "rc", "cqp", 0);
 		av_opt_set_int(ctx->priv_data, "qp_i", qp, 0);
 		av_opt_set_int(ctx->priv_data, "qp_p", qp, 0);
-		av_opt_set(ctx->priv_data, "usage", "ultralowlatency", 0);
+		/* not the low-latency usages: AMD drivers ignore the GOP size
+		 * in those and emit a single keyframe for the whole stream, so
+		 * the replay buffer could never drop anything */
+		av_opt_set(ctx->priv_data, "usage", "transcoding", 0);
 	} else if (strcmp(name, "h264_qsv") == 0) {
 		ctx->global_quality = qp;
 		av_opt_set(ctx->priv_data, "preset", "fast", 0);
@@ -151,29 +162,27 @@ static bool open_encoder(struct sr_encoder *enc, const char *name, uint32_t widt
 	return true;
 }
 
-struct sr_encoder *sr_encoder_create(const char *owner, uint32_t width, uint32_t height, uint32_t fps_num,
-				     uint32_t fps_den, enum sr_encoder_backend backend, int qp, int keyint)
+static const char *backend_codec_name(enum sr_encoder_backend b)
 {
-	static const char *auto_order[] = {"h264_nvenc", "h264_amf", "h264_qsv", "libx264"};
-	const char *only = NULL;
-
-	switch (backend) {
+	switch (b) {
 	case SR_ENC_NVENC:
-		only = "h264_nvenc";
-		break;
+		return "h264_nvenc";
 	case SR_ENC_AMF:
-		only = "h264_amf";
-		break;
+		return "h264_amf";
 	case SR_ENC_QSV:
-		only = "h264_qsv";
-		break;
+		return "h264_qsv";
 	case SR_ENC_X264:
-		only = "libx264";
-		break;
+		return "libx264";
 	case SR_ENC_AUTO:
 		break;
 	}
+	return NULL;
+}
 
+struct sr_encoder *sr_encoder_create(const char *owner, uint32_t width, uint32_t height, uint32_t fps_num,
+				     uint32_t fps_den, enum sr_encoder_backend backend, uint32_t skip_mask, int qp,
+				     int keyint)
+{
 	if (keyint < 1)
 		keyint = 1;
 
@@ -182,18 +191,17 @@ struct sr_encoder *sr_encoder_create(const char *owner, uint32_t width, uint32_t
 	enc->src_height = height;
 	enc->sws_src_format = AV_PIX_FMT_NONE;
 
+	enum sr_encoder_backend order[4];
+	const size_t n = sr_guard_backend_order(backend, skip_mask, order);
+
 	bool opened = false;
-	if (only) {
-		opened = open_encoder(enc, only, width, height, fps_num, fps_den, qp, keyint);
-		/* an explicitly selected hardware encoder may still be
-		 * missing on this machine; fall back to software */
-		if (!opened && strcmp(only, "libx264") != 0) {
-			obs_log(LOG_WARNING, "'%s': encoder '%s' unavailable, falling back to libx264", owner, only);
-			opened = open_encoder(enc, "libx264", width, height, fps_num, fps_den, qp, keyint);
-		}
-	} else {
-		for (size_t i = 0; i < sizeof(auto_order) / sizeof(auto_order[0]) && !opened; i++)
-			opened = open_encoder(enc, auto_order[i], width, height, fps_num, fps_den, qp, keyint);
+	for (size_t i = 0; i < n && !opened; i++) {
+		const char *name = backend_codec_name(order[i]);
+		opened = open_encoder(enc, name, width, height, fps_num, fps_den, qp, keyint);
+		if (opened)
+			enc->backend = order[i];
+		else if (order[i] == backend)
+			obs_log(LOG_WARNING, "'%s': encoder '%s' unavailable, trying the next one", owner, name);
 	}
 
 	if (!opened) {
@@ -218,7 +226,7 @@ void sr_encoder_destroy(struct sr_encoder *enc)
 	bfree(enc);
 }
 
-AVPacket *sr_encoder_encode(struct sr_encoder *enc, const struct obs_source_frame *frame)
+enum sr_send_result sr_encoder_send(struct sr_encoder *enc, const struct obs_source_frame *frame)
 {
 	const enum AVPixelFormat src_format = obs_to_av_format(frame->format);
 	if (src_format == AV_PIX_FMT_NONE) {
@@ -226,7 +234,7 @@ AVPacket *sr_encoder_encode(struct sr_encoder *enc, const struct obs_source_fram
 			obs_log(LOG_WARNING, "unsupported source video format %d", (int)frame->format);
 			enc->unsupported_format_logged = true;
 		}
-		return NULL;
+		return SR_SEND_SKIPPED;
 	}
 
 	if (enc->sws_src_format != src_format) {
@@ -236,11 +244,8 @@ AVPacket *sr_encoder_encode(struct sr_encoder *enc, const struct obs_source_fram
 					  enc->ctx->height, AV_PIX_FMT_NV12, SWS_BILINEAR, NULL, NULL, NULL);
 		enc->sws_src_format = src_format;
 	}
-	if (!enc->sws)
-		return NULL;
-
-	if (av_frame_make_writable(enc->frame) < 0)
-		return NULL;
+	if (!enc->sws || av_frame_make_writable(enc->frame) < 0)
+		return SR_SEND_ERROR;
 
 	const uint8_t *src_data[MAX_AV_PLANES] = {0};
 	int src_linesize[MAX_AV_PLANES] = {0};
@@ -252,19 +257,25 @@ AVPacket *sr_encoder_encode(struct sr_encoder *enc, const struct obs_source_fram
 	sws_scale(enc->sws, src_data, src_linesize, 0, (int)frame->height, enc->frame->data, enc->frame->linesize);
 
 	enc->frame->pts = enc->next_pts++;
+	enc->pts_ts[(uint64_t)enc->frame->pts % PTS_TS_SLOTS] = frame->timestamp;
+	enc->last_ts = frame->timestamp;
 
-	if (avcodec_send_frame(enc->ctx, enc->frame) < 0)
-		return NULL;
+	return avcodec_send_frame(enc->ctx, enc->frame) < 0 ? SR_SEND_ERROR : SR_SEND_OK;
+}
 
+AVPacket *sr_encoder_receive(struct sr_encoder *enc, uint64_t *ts)
+{
 	AVPacket *pkt = av_packet_alloc();
 	if (!pkt)
 		return NULL;
 
-	const int ret = avcodec_receive_packet(enc->ctx, pkt);
-	if (ret < 0) {
+	if (avcodec_receive_packet(enc->ctx, pkt) < 0) {
 		av_packet_free(&pkt);
 		return NULL;
 	}
+
+	*ts = (pkt->pts != AV_NOPTS_VALUE && pkt->pts >= 0) ? enc->pts_ts[(uint64_t)pkt->pts % PTS_TS_SLOTS]
+							    : enc->last_ts;
 	return pkt;
 }
 
@@ -276,6 +287,11 @@ enum AVCodecID sr_encoder_codec_id(const struct sr_encoder *enc)
 const char *sr_encoder_name(const struct sr_encoder *enc)
 {
 	return enc->codec->name;
+}
+
+enum sr_encoder_backend sr_encoder_backend(const struct sr_encoder *enc)
+{
+	return enc->backend;
 }
 
 void sr_encoder_get_extradata(const struct sr_encoder *enc, const uint8_t **data, int *size)

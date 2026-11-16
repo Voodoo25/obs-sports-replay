@@ -18,6 +18,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 
 #include <obs-module.h>
 #include <plugin-support.h>
+#include <util/platform.h>
 
 #include "sr-buffer.h"
 #include "sr-codec.h"
@@ -50,6 +51,12 @@ struct sr_capture {
 	uint32_t enc_height;
 	bool encoder_failed;
 	bool reset_encoder;
+
+	/* safeguards: encoders that misbehaved on this source are skipped
+	 * until its settings change; the watch judges the current one */
+	uint32_t skip_backends;
+	struct sr_encoder_watch watch;
+	uint64_t last_trim_log; /* os_gettime_ns of the last trim warning */
 
 	/* timestamp of the last frame the source delivered */
 	uint64_t last_frame_ts;
@@ -90,6 +97,7 @@ static void sr_capture_update(void *data, obs_data_t *settings)
 		c->have_last_kept = false;
 		c->reset_encoder = true;
 		c->encoder_failed = false;
+		c->skip_backends = 0;
 	}
 }
 
@@ -126,9 +134,60 @@ static void log_buffer_stats(struct sr_capture *c, uint64_t now)
 	if (c->last_stats_log && now - c->last_stats_log < 60000000000ULL)
 		return;
 	c->last_stats_log = now;
+	const double mb = 1024.0 * 1024.0;
 	const size_t bytes = sr_buffer_video_bytes(&c->buffer);
-	obs_log(LOG_INFO, "'%s': replay buffer using %.1f MB", sr_capture_log_name(c),
-		(double)bytes / (1024.0 * 1024.0));
+	obs_log(LOG_INFO, "'%s': replay buffer using %.1f MB (%.1f s, %s; all buffers %.0f of %.0f MB)",
+		sr_capture_log_name(c), (double)bytes / mb, (double)sr_buffer_video_span_ns(&c->buffer) / 1e9,
+		c->encoder ? sr_encoder_name(c->encoder) : "no encoder", (double)sr_buffers_total_bytes() / mb,
+		(double)sr_buffers_budget() / mb);
+}
+
+/* A safeguard cut the buffer short. Worth a warning - it means something
+ * upstream misbehaves - but at most every ten seconds per source. */
+static void sr_capture_report_trim(struct sr_capture *c, const struct sr_guard_eviction *ev)
+{
+	if (!ev->trim)
+		return;
+
+	const uint64_t now = os_gettime_ns();
+	if (c->last_trim_log && now - c->last_trim_log < 10000000000ULL)
+		return;
+	c->last_trim_log = now;
+
+	const char *reason = (ev->trim & SR_TRIM_MEMORY) ? "memory budget" : "time span limit";
+	if (ev->drop_all)
+		obs_log(LOG_WARNING, "'%s': replay buffer over its %s with no keyframe to cut at, restarting it",
+			sr_capture_log_name(c), reason);
+	else
+		obs_log(LOG_WARNING, "'%s': replay buffer over its %s, dropped %zu old frames", sr_capture_log_name(c),
+			reason, ev->drop);
+}
+
+/* The watch caught the encoder not doing its job. Trusting it further could
+ * let the buffer grow without bound or starve it, so it is replaced by the
+ * next backend, and never tried again on this source until the settings
+ * change. */
+static void sr_capture_replace_encoder(struct sr_capture *c, enum sr_guard_verdict verdict)
+{
+	const char *why = "misbehaved";
+	switch (verdict) {
+	case SR_ENCODER_NO_KEYFRAMES:
+		why = "is not producing keyframes";
+		break;
+	case SR_ENCODER_ERRORS:
+		why = "keeps rejecting frames";
+		break;
+	case SR_ENCODER_STALLED:
+		why = "stopped returning packets";
+		break;
+	case SR_ENCODER_OK:
+		return;
+	}
+
+	obs_log(LOG_WARNING, "'%s': replay encoder '%s' %s, switching to another encoder", sr_capture_log_name(c),
+		sr_encoder_name(c->encoder), why);
+	c->skip_backends |= SR_BACKEND_BIT(sr_encoder_backend(c->encoder));
+	c->reset_encoder = true;
 }
 
 /* A source that restarts (a capture device reopened with new settings, a
@@ -199,13 +258,15 @@ static struct obs_source_frame *sr_capture_filter_video(void *data, struct obs_s
 			fps_den = ovi.fps_den;
 		}
 		c->encoder = sr_encoder_create(sr_capture_log_name(c), frame->width, frame->height, fps_num, fps_den,
-					       c->backend, c->qp, c->keyint);
+					       c->backend, c->skip_backends, c->qp, c->keyint);
 		if (!c->encoder) {
-			obs_log(LOG_ERROR, "'%s': no H.264 encoder available, replay capture disabled",
+			obs_log(LOG_ERROR,
+				"'%s': no usable H.264 encoder left, replay capture disabled for this source",
 				sr_capture_log_name(c));
 			c->encoder_failed = true;
 			return frame;
 		}
+		sr_encoder_watch_init(&c->watch, c->keyint, (double)fps_num / (double)(fps_den ? fps_den : 1));
 		c->reset_encoder = false;
 		c->enc_width = frame->width;
 		c->enc_height = frame->height;
@@ -222,9 +283,24 @@ static struct obs_source_frame *sr_capture_filter_video(void *data, struct obs_s
 		sr_buffer_set_extradata(&c->buffer, extradata, extradata_size);
 	}
 
-	AVPacket *pkt = sr_encoder_encode(c->encoder, frame);
-	if (pkt)
-		sr_buffer_push_video(&c->buffer, pkt, frame->timestamp);
+	const enum sr_send_result sent = sr_encoder_send(c->encoder, frame);
+	if (sent != SR_SEND_SKIPPED) {
+		enum sr_guard_verdict verdict = sr_encoder_watch_sent(&c->watch, sent == SR_SEND_OK);
+
+		AVPacket *pkt;
+		uint64_t pkt_ts = 0;
+		while (verdict == SR_ENCODER_OK && (pkt = sr_encoder_receive(c->encoder, &pkt_ts))) {
+			verdict = sr_encoder_watch_packet(&c->watch, (pkt->flags & AV_PKT_FLAG_KEY) != 0);
+
+			const struct sr_guard_eviction ev = sr_buffer_push_video(&c->buffer, pkt, pkt_ts);
+			sr_capture_report_trim(c, &ev);
+			if (ev.drop_all)
+				c->reset_encoder = true;
+		}
+
+		if (verdict != SR_ENCODER_OK)
+			sr_capture_replace_encoder(c, verdict);
+	}
 
 	log_buffer_stats(c, frame->timestamp);
 	return frame;

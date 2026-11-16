@@ -46,6 +46,7 @@ target_sources(
   PRIVATE
     src/plugin-main.c
     src/sr-buffer.c
+    src/sr-guard.c
     src/sr-codec.c
     src/capture-filter.c
     src/playback-source.c
